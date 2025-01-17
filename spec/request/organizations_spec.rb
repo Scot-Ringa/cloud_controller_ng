@@ -215,7 +215,7 @@ module VCAP::CloudController
         get '/v3/organizations?per_page=2', nil, user_header
         expect(last_response.status).to eq(200)
 
-        parsed_response = MultiJson.load(last_response.body)
+        parsed_response = Oj.load(last_response.body)
         expect(parsed_response).to be_a_response_like(
           {
             'pagination' => {
@@ -302,7 +302,7 @@ module VCAP::CloudController
           get '/v3/organizations?label_selector=!fruit,env=prod,animal in (dog,horse)', nil, admin_header
           expect(last_response.status).to eq(200), last_response.body
 
-          parsed_response = MultiJson.load(last_response.body)
+          parsed_response = Oj.load(last_response.body)
           expect(parsed_response['resources'].pluck('guid')).to contain_exactly(orgB.guid, orgC.guid)
         end
       end
@@ -319,7 +319,7 @@ module VCAP::CloudController
           let(:space) { VCAP::CloudController::Space.make }
           let(:org) { space.organization }
           let(:expected_codes_and_responses) do
-            h = Hash.new(code: 200, response_guids: [org.guid])
+            h = Hash.new({ code: 200, response_guids: [org.guid] }.freeze)
             h['admin'] = { code: 200, response_guids: VCAP::CloudController::Organization.select_map(:guid) }
             h['admin_read_only'] = { code: 200, response_guids: VCAP::CloudController::Organization.select_map(:guid) }
             h['global_auditor'] = { code: 200, response_guids: VCAP::CloudController::Organization.select_map(:guid) }
@@ -342,7 +342,7 @@ module VCAP::CloudController
         get "/v3/isolation_segments/#{isolation_segment1.guid}/organizations?per_page=2", nil, user_header
         expect(last_response.status).to eq(200)
 
-        parsed_response = MultiJson.load(last_response.body)
+        parsed_response = Oj.load(last_response.body)
         expect(parsed_response).to be_a_response_like(
           {
             'pagination' => {
@@ -428,7 +428,7 @@ module VCAP::CloudController
           }
         }
 
-        parsed_response = MultiJson.load(last_response.body)
+        parsed_response = Oj.load(last_response.body)
 
         expect(last_response.status).to eq(200)
         expect(parsed_response).to be_a_response_like(expected_response)
@@ -552,12 +552,12 @@ module VCAP::CloudController
           let(:api_call) { ->(user_headers) { get "/v3/organizations/#{org.guid}/domains", nil, user_headers } }
           let(:expected_codes_and_responses) do
             h = Hash.new(
-              code: 200,
-              response_objects: [
-                shared_domain_json,
-                owned_private_domain_json,
-                shared_private_domain_json
-              ]
+              { code: 200,
+                response_objects: [
+                  shared_domain_json,
+                  owned_private_domain_json,
+                  shared_private_domain_json
+                ] }.freeze
             )
             h['org_billing_manager'] = {
               code: 200,
@@ -580,10 +580,10 @@ module VCAP::CloudController
 
           let(:expected_codes_and_responses) do
             h = Hash.new(
-              code: 200,
-              response_objects: [
-                shared_domain_json
-              ]
+              { code: 200,
+                response_objects: [
+                  shared_domain_json
+                ] }.freeze
             )
             h['no_role'] = {
               code: 404
@@ -599,10 +599,10 @@ module VCAP::CloudController
 
           let(:expected_codes_and_responses) do
             h = Hash.new(
-              code: 200,
-              response_objects: [
-                shared_domain_json
-              ]
+              { code: 200,
+                response_objects: [
+                  shared_domain_json
+                ] }.freeze
             )
             h['no_role'] = {
               code: 404
@@ -618,10 +618,10 @@ module VCAP::CloudController
 
           let(:expected_codes_and_responses) do
             h = Hash.new(
-              code: 200,
-              response_objects: [
-                owned_private_domain_json
-              ]
+              { code: 200,
+                response_objects: [
+                  owned_private_domain_json
+                ] }.freeze
             )
             h['org_billing_manager'] = {
               code: 200,
@@ -653,7 +653,7 @@ module VCAP::CloudController
         it 'returns a 200 and the filtered apps for "in" label selector' do
           get "#{base_link}?label_selector=animal in (dog)", nil, admin_header
 
-          parsed_response = MultiJson.load(last_response.body)
+          parsed_response = Oj.load(last_response.body)
 
           expected_pagination = {
             'total_results' => 1,
@@ -672,7 +672,7 @@ module VCAP::CloudController
         it 'returns a 200 and the filtered domains for "notin" label selector' do
           get "#{base_link}?label_selector=animal notin (dog)", nil, admin_header
 
-          parsed_response = MultiJson.load(last_response.body)
+          parsed_response = Oj.load(last_response.body)
 
           expected_pagination = {
             'total_results' => 1,
@@ -691,7 +691,7 @@ module VCAP::CloudController
         it 'returns a 200 and the filtered domains for "=" label selector' do
           get "#{base_link}?label_selector=animal=dog", nil, admin_header
 
-          parsed_response = MultiJson.load(last_response.body)
+          parsed_response = Oj.load(last_response.body)
 
           expected_pagination = {
             'total_results' => 1,
@@ -710,7 +710,7 @@ module VCAP::CloudController
         it 'returns a 200 and the filtered domains for "==" label selector' do
           get "#{base_link}?label_selector=animal==dog", nil, admin_header
 
-          parsed_response = MultiJson.load(last_response.body)
+          parsed_response = Oj.load(last_response.body)
 
           expected_pagination = {
             'total_results' => 1,
@@ -729,7 +729,7 @@ module VCAP::CloudController
         it 'returns a 200 and the filtered domains for "!=" label selector' do
           get "#{base_link}?label_selector=animal!=dog", nil, admin_header
 
-          parsed_response = MultiJson.load(last_response.body)
+          parsed_response = Oj.load(last_response.body)
 
           expected_pagination = {
             'total_results' => 1,
@@ -748,7 +748,7 @@ module VCAP::CloudController
         it 'returns a 200 and the filtered domains for "=" label selector' do
           get "#{base_link}?label_selector=animal=cow,santa=claus", nil, admin_header
 
-          parsed_response = MultiJson.load(last_response.body)
+          parsed_response = Oj.load(last_response.body)
 
           expected_pagination = {
             'total_results' => 1,
@@ -767,7 +767,7 @@ module VCAP::CloudController
         it 'returns a 200 and the filtered domains for existence label selector' do
           get "#{base_link}?label_selector=santa", nil, admin_header
 
-          parsed_response = MultiJson.load(last_response.body)
+          parsed_response = Oj.load(last_response.body)
 
           expected_pagination = {
             'total_results' => 1,
@@ -786,7 +786,7 @@ module VCAP::CloudController
         it 'returns a 200 and the filtered domains for non-existence label selector' do
           get "#{base_link}?label_selector=!santa", nil, admin_header
 
-          parsed_response = MultiJson.load(last_response.body)
+          parsed_response = Oj.load(last_response.body)
 
           expected_pagination = {
             'total_results' => 1,
@@ -842,8 +842,8 @@ module VCAP::CloudController
         let!(:tcp_domain) { SharedDomain.make(router_group_guid: 'default-tcp') }
         let(:expected_codes_and_responses) do
           h = Hash.new(
-            code: 200,
-            response_object: domain_json
+            { code: 200,
+              response_object: domain_json }.freeze
           )
           h['no_role'] = { code: 404 }
           h
@@ -860,8 +860,8 @@ module VCAP::CloudController
         context 'when at least one private domain exists' do
           let(:expected_codes_and_responses) do
             h = Hash.new(
-              code: 200,
-              response_object: domain_json
+              { code: 200,
+                response_object: domain_json }.freeze
             )
             h['org_billing_manager'] = { code: 404 }
             h['no_role'] = { code: 404 }
@@ -943,7 +943,7 @@ module VCAP::CloudController
 
         let(:expected_codes_and_responses) do
           h = Hash.new(
-            code: 404
+            { code: 404 }.freeze
           )
           h
         end
@@ -956,7 +956,7 @@ module VCAP::CloudController
 
         let(:expected_codes_and_responses) do
           h = Hash.new(
-            code: 404
+            { code: 404 }.freeze
           )
           h
         end
@@ -967,7 +967,7 @@ module VCAP::CloudController
       context 'when no domains exist' do
         let(:expected_codes_and_responses) do
           h = Hash.new(
-            code: 404
+            { code: 404 }.freeze
           )
           h
         end
@@ -1011,8 +1011,8 @@ module VCAP::CloudController
 
       let(:expected_codes_and_responses) do
         h = Hash.new(
-          code: 200,
-          response_object: org_summary_json
+          { code: 200,
+            response_object: org_summary_json }.freeze
         )
         h['no_role'] = { code: 404 }
         h
@@ -1073,7 +1073,7 @@ module VCAP::CloudController
             }
           }
 
-          parsed_response = MultiJson.load(last_response.body)
+          parsed_response = Oj.load(last_response.body)
 
           expect(last_response.status).to eq(200)
           expect(parsed_response).to be_a_response_like(expected_response)
@@ -1088,7 +1088,7 @@ module VCAP::CloudController
         let(:space) { Space.make(organization: org) }
         let(:api_call) { ->(user_headers) { patch "/v3/organizations/#{org.guid}/relationships/default_isolation_segment", nil, user_headers } }
         let(:expected_codes_and_responses) do
-          h = Hash.new(code: 403, errors: CF_NOT_AUTHORIZED)
+          h = Hash.new({ code: 403, errors: CF_NOT_AUTHORIZED }.freeze)
           h['admin'] = { code: 200 }
           h['org_manager'] = { code: 403, errors: CF_ORG_SUSPENDED }
           h['no_role'] = { code: 404 }
@@ -1128,7 +1128,7 @@ module VCAP::CloudController
         }
       end
       let(:expected_codes_and_responses) do
-        h = Hash.new(code: 200, response_object: expected_response_object)
+        h = Hash.new({ code: 200, response_object: expected_response_object }.freeze)
         h['no_role'] = { code: 404 }
         h
       end
@@ -1186,7 +1186,7 @@ module VCAP::CloudController
             'suspended' => false
           }
 
-          parsed_response = MultiJson.load(last_response.body)
+          parsed_response = Oj.load(last_response.body)
 
           expect(last_response.status).to eq(200)
           expect(parsed_response).to be_a_response_like(expected_response)
@@ -1236,7 +1236,7 @@ module VCAP::CloudController
             'suspended' => true
           }
 
-          parsed_response = MultiJson.load(last_response.body)
+          parsed_response = Oj.load(last_response.body)
 
           expect(last_response.status).to eq(200)
           expect(parsed_response).to be_a_response_like(expected_response)
@@ -1281,7 +1281,7 @@ module VCAP::CloudController
               'suspended' => false
             }
 
-            parsed_response = MultiJson.load(last_response.body)
+            parsed_response = Oj.load(last_response.body)
 
             expect(last_response.status).to eq(200)
             expect(parsed_response).to be_a_response_like(expected_response)
@@ -1294,7 +1294,7 @@ module VCAP::CloudController
         let(:space) { Space.make(organization: org) }
         let(:api_call) { ->(user_headers) { patch "/v3/organizations/#{org.guid}", nil, user_headers } }
         let(:expected_codes_and_responses) do
-          h = Hash.new(code: 403, errors: CF_NOT_AUTHORIZED)
+          h = Hash.new({ code: 403, errors: CF_NOT_AUTHORIZED }.freeze)
           h['admin'] = { code: 200 }
           h['org_manager'] = { code: 403, errors: CF_ORG_SUSPENDED }
           h['no_role'] = { code: 404 }
@@ -1376,7 +1376,7 @@ module VCAP::CloudController
 
       context 'when the user is a member in the org' do
         let(:expected_codes_and_responses) do
-          h = Hash.new(code: 403)
+          h = Hash.new({ code: 403 }.freeze)
           h['admin'] = { code: 202 }
           h['no_role'] = { code: 404 }
           h
@@ -1500,7 +1500,7 @@ module VCAP::CloudController
           it 'returns 200 and the filtered users' do
             get "/v3/organizations/#{organization1.guid}/users?guids=#{user.guid}", nil, admin_header
 
-            parsed_response = MultiJson.load(last_response.body)
+            parsed_response = Oj.load(last_response.body)
             expected_pagination = {
               'total_results' => 1,
               'total_pages' => 1,
@@ -1527,7 +1527,7 @@ module VCAP::CloudController
           it 'returns 200 and the filtered users' do
             get "/v3/organizations/#{organization1.guid}/users?usernames=rob-mcjames&origins=Okta", nil, admin_header
 
-            parsed_response = MultiJson.load(last_response.body)
+            parsed_response = Oj.load(last_response.body)
             expected_pagination = {
               'total_results' => 1,
               'total_pages' => 1,
@@ -1554,7 +1554,7 @@ module VCAP::CloudController
           it 'returns 200 and the filtered users' do
             get "/v3/organizations/#{organization1.guid}/users?partial_usernames=b-mcjam&origins=Okta", nil, admin_header
 
-            parsed_response = MultiJson.load(last_response.body)
+            parsed_response = Oj.load(last_response.body)
             expected_pagination = {
               'total_results' => 1,
               'total_pages' => 1,
@@ -1577,7 +1577,7 @@ module VCAP::CloudController
             get "/v3/organizations/#{organization1.guid}/users?label_selector=animal in (dog)", nil, admin_header
             expect(last_response).to have_status_code(200)
 
-            parsed_response = MultiJson.load(last_response.body)
+            parsed_response = Oj.load(last_response.body)
             expected_pagination = {
               'total_results' => 1,
               'total_pages' => 1,
@@ -1649,11 +1649,11 @@ module VCAP::CloudController
         let(:org_manager_json) { build_user_json(org_manager.guid, 'rob-mcjames', 'Okta') }
         let(:expected_codes_and_responses) do
           h = Hash.new(
-            code: 200,
-            response_objects: [
-              user_json,
-              org_manager_json
-            ]
+            { code: 200,
+              response_objects: [
+                user_json,
+                org_manager_json
+              ] }.freeze
           )
           h['no_role'] = {
             code: 404

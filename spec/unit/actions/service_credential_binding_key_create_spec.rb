@@ -67,8 +67,12 @@ module VCAP::CloudController
             end
 
             context "when the last key operation is in 'create failed' state" do
+              let(:fake_orphan_mitigator) { instance_double(VCAP::Services::ServiceBrokers::V2::OrphanMitigator) }
+
               before do
                 binding.save_with_attributes_and_new_operation({}, { type: 'create', state: 'failed' })
+                allow(VCAP::Services::ServiceBrokers::V2::OrphanMitigator).to receive(:new).and_return(fake_orphan_mitigator)
+                allow(fake_orphan_mitigator).to receive(:cleanup_failed_bind).with(binding)
               end
 
               it 'deletes the existing key and creates a new one' do
@@ -77,6 +81,7 @@ module VCAP::CloudController
                 expect(b.guid).not_to eq(binding.guid)
                 expect(b).to be_create_in_progress
                 expect { binding.reload }.to raise_error Sequel::NoExistingObject
+                expect(fake_orphan_mitigator).to have_received(:cleanup_failed_bind).with(binding)
               end
             end
 
@@ -248,6 +253,26 @@ module VCAP::CloudController
                 "You have exceeded your organization's limit for service binding of type key."
               )
             end
+          end
+        end
+
+        context 'when creating keys with the same name concurrently' do
+          let(:service_instance) { ManagedServiceInstance.make(space:) }
+
+          it 'ensures one creation is successful and the other fails due to name conflict' do
+            # First request, should succeed
+            expect do
+              action.precursor(service_instance, message:)
+            end.not_to raise_error
+
+            # Mock the validation for the second request to simulate the race condition and trigger a unique constraint violation
+            allow_any_instance_of(ServiceKey).to receive(:validate).and_return(true)
+            allow(ServiceKey).to receive(:first).with(service_instance:, name:).and_return(nil)
+
+            expect do
+              action.precursor(service_instance, message:)
+            end.to raise_error(ServiceBindingCreate::UnprocessableCreate,
+                               "The binding name is invalid. Key binding names must be unique. The service instance already has a key binding with name 'some-binding-name'.")
           end
         end
       end

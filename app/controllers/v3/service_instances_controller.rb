@@ -173,7 +173,7 @@ class ServiceInstancesV3Controller < ApplicationController
 
   def relationships_shared_spaces
     service_instance = ServiceInstance.first(guid: hashed_params[:guid])
-    resource_not_found!(:service_instance) unless service_instance && can_read_from_space?(service_instance.space)
+    resource_not_found!(:service_instance) unless service_instance && can_read_service_instance?(service_instance)
 
     message = SharedSpacesShowMessage.from_params(query_params)
     invalid_param!(message.errors.full_messages) unless message.valid?
@@ -189,7 +189,7 @@ class ServiceInstancesV3Controller < ApplicationController
 
   def shared_spaces_usage_summary
     service_instance = ServiceInstance.first(guid: hashed_params[:guid])
-    service_instance_not_found! unless service_instance.present? && can_read_from_space?(service_instance.space)
+    service_instance_not_found! unless service_instance.present? && can_read_service_instance?(service_instance)
 
     render status: :ok, json: Presenters::V3::SharedSpacesUsageSummaryPresenter.new(service_instance)
   end
@@ -257,17 +257,20 @@ class ServiceInstancesV3Controller < ApplicationController
     unprocessable_service_plan! unless service_plan_valid?(service_plan, space)
 
     action = V3::ServiceInstanceCreateManaged.new(user_audit_info, message.audit_hash)
-    instance = action.precursor(message:, service_plan:)
+    VCAP::CloudController::ManagedServiceInstance.db.transaction do
+      instance = action.precursor(message:, service_plan:)
 
-    provision_job = VCAP::CloudController::V3::CreateServiceInstanceJob.new(
-      instance.guid,
-      arbitrary_parameters: message.parameters,
-      user_audit_info: user_audit_info,
-      audit_hash: message.audit_hash
-    )
-    pollable_job = Jobs::Enqueuer.new(provision_job, queue: Jobs::Queues.generic).enqueue_pollable
+      provision_job = VCAP::CloudController::V3::CreateServiceInstanceJob.new(
+        instance.guid,
+        arbitrary_parameters: message.parameters,
+        user_audit_info: user_audit_info,
+        audit_hash: message.audit_hash
+      )
 
-    head :accepted, 'Location' => url_builder.build_url(path: "/v3/jobs/#{pollable_job.guid}")
+      pollable_job = Jobs::Enqueuer.new(provision_job, queue: Jobs::Queues.generic).enqueue_pollable
+
+      head :accepted, 'Location' => url_builder.build_url(path: "/v3/jobs/#{pollable_job.guid}")
+    end
   rescue VCAP::CloudController::ServiceInstanceCreateMixin::UnprocessableOperation,
          V3::ServiceInstanceCreateManaged::InvalidManagedServiceInstance => e
     unprocessable!(e.message)

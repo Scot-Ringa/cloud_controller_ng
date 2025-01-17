@@ -26,6 +26,12 @@ module VCAP::CloudController
               optional(:max_number_of_failed_delayed_jobs) => Integer,
               frequency_in_seconds: Integer
             },
+            pollable_jobs: {
+              cutoff_age_in_days: Integer
+            },
+            service_operations_initial_cleanup: {
+              frequency_in_seconds: Integer
+            },
             completed_tasks: {
               cutoff_age_in_days: Integer
             },
@@ -93,10 +99,7 @@ module VCAP::CloudController
               app_package_directory_key: String,
               fog_connection: Hash,
               fog_aws_storage_options: Hash,
-              fog_gcp_storage_options: Hash,
-              optional(:image_registry) => {
-                base_path: String
-              }
+              fog_gcp_storage_options: Hash
             },
 
             droplets: {
@@ -144,6 +147,8 @@ module VCAP::CloudController
               interpolate_service_bindings: bool
             },
 
+            cpu_weight_min_memory: Integer,
+            cpu_weight_max_memory: Integer,
             default_app_memory: Integer,
             default_app_disk_in_mb: Integer,
             default_app_log_rate_limit_in_bytes_per_second: Integer,
@@ -177,6 +182,7 @@ module VCAP::CloudController
 
             statsd_host: String,
             statsd_port: Integer,
+            optional(:enable_statsd_metrics) => bool,
 
             max_labels_per_resource: Integer,
             max_annotations_per_resource: Integer,

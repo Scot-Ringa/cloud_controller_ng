@@ -28,11 +28,22 @@ module VCAP::CloudController
           )
         end
 
-        super(message, dataset, klass)
+        super
       end
 
       def join_service_plans(dataset)
-        join(dataset, :inner, :service_plans, service_id: Sequel[:services][:id])
+        dataset = join(dataset, :inner, :service_plans, service_id: Sequel[:services][:id])
+        distinct(dataset) # services can have multiple plans
+      end
+
+      def join_services(dataset)
+        dataset # The ServiceOfferingListFetcher operates on the :services table, so there is no need for an additional JOIN.
+      end
+
+      def distinct_union(dataset)
+        # The UNIONed :services datasets (permissions granted on org level for plans / permissions
+        # granted on space level for brokers / public plans) might contain duplicate entries.
+        distinct(dataset)
       end
     end
   end

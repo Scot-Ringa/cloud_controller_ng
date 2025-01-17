@@ -17,6 +17,8 @@ setupPostgres () {
     # Sequential Test DBs
     export PGPASSWORD=supersecret
     psql -U postgres -h localhost -tc "SELECT 1 FROM pg_database WHERE datname = 'cc_test'" | grep -q 1 || psql -U postgres -h localhost -c "CREATE DATABASE cc_test"
+    psql -U postgres -h localhost -tc "SELECT 1 FROM pg_database WHERE datname = 'diego'" | grep -q 1 || psql -U postgres -h localhost -c "CREATE DATABASE diego"
+    psql -U postgres -h localhost -tc "SELECT 1 FROM pg_database WHERE datname = 'locket'" | grep -q 1 || psql -U postgres -h localhost -c "CREATE DATABASE locket"
     # Main DB
     export DB_CONNECTION_STRING="${POSTGRES_CONNECTION_PREFIX}/ccdb"
     bundle exec rake db:recreate db:migrate db:seed
@@ -28,32 +30,10 @@ setupMariadb () {
     export MYSQL_CONNECTION_PREFIX
     bundle exec rake db:pick db:parallel:recreate
     # Sequential Test DBs
-    mysql -h 127.0.0.1 -u root -psupersecret -e "CREATE DATABASE IF NOT EXISTS cc_test;"
+    mysql -h 127.0.0.1 -u root -psupersecret -e "CREATE DATABASE IF NOT EXISTS cc_test; CREATE DATABASE IF NOT EXISTS diego; CREATE DATABASE IF NOT EXISTS locket;"
     # Main DB
     export DB_CONNECTION_STRING="${MYSQL_CONNECTION_PREFIX}/ccdb"
     bundle exec rake db:recreate db:migrate db:seed
-}
-
-setupUAA () {
-    # Wait until ready
-    # shellcheck disable=SC2016
-    timeout 300 bash -c 'while [[ "$(curl -s -o /dev/null -w ''%{http_code}'' http://localhost:8080/info)" != "200" ]]; do sleep 5; done' || false
-
-    # Login
-    uaac target http://localhost:8080 --skip-ssl-validation
-    uaac token client get admin -s "adminsecret"
-
-    # Admin User
-    NEW_ADMIN_USERNAME="ccadmin"
-    NEW_ADMIN_PASSWORD="secret"
-    uaac user add ${NEW_ADMIN_USERNAME} -p ${NEW_ADMIN_PASSWORD} --emails fake@example.com
-    uaac member add cloud_controller.admin ${NEW_ADMIN_USERNAME}
-    uaac member add uaa.admin ${NEW_ADMIN_USERNAME}
-    uaac member add scim.read ${NEW_ADMIN_USERNAME}
-    uaac member add scim.write ${NEW_ADMIN_USERNAME}
-
-    # Dasboard User
-    uaac user add cc-service-dashboards -p some-sekret --emails fake2@example.com
 }
 
 # Install packages
@@ -63,7 +43,6 @@ bundle install
 # Setup Containers
 setupPostgres || tee tmp/fail &
 setupMariadb || tee tmp/fail &
-setupUAA || tee tmp/fail &
 
 # CC config
 mkdir -p tmp
@@ -80,7 +59,7 @@ yq -i e '.nginx.instance_socket=""' tmp/cloud_controller.yml
 
 yq -i e '.logging.file="tmp/cloud_controller.log"' tmp/cloud_controller.yml
 yq -i e '.telemetry_log_path="tmp/cloud_controller_telemetry.log"' tmp/cloud_controller.yml
-yq -i e '.directories.tmpdir="tmp"' tmp/cloud_controller.yml
+TMPDIR=$(pwd)/tmp yq -i e '.directories.tmpdir=env(TMPDIR)' tmp/cloud_controller.yml;
 yq -i e '.directories.diagnostics="tmp"' tmp/cloud_controller.yml
 yq -i e '.security_event_logging.enabled=true' tmp/cloud_controller.yml
 yq -i e '.security_event_logging.file="tmp/cef.log"' tmp/cloud_controller.yml
@@ -120,6 +99,13 @@ yq -i e '.buildpacks.fog_connection.path_style=true' tmp/cloud_controller.yml
 
 yq -i e '.cloud_controller_username_lookup_client_name="login"' tmp/cloud_controller.yml
 yq -i e '.cloud_controller_username_lookup_client_secret="loginsecret"' tmp/cloud_controller.yml
+
+yq -i e '.diego.bbs.url="http://127.0.0.1:1234"' tmp/cloud_controller.yml
+yq -i e '.diego.bbs.key_file="spec/fixtures/certs/bbs_client.key"' tmp/cloud_controller.yml
+yq -i e '.diego.bbs.cert_file="spec/fixtures/certs/bbs_client.crt"' tmp/cloud_controller.yml
+yq -i e '.diego.bbs.ca_file="spec/fixtures/certs/bbs_ca.crt"' tmp/cloud_controller.yml
+
+yq -i e '.packages.max_package_size=2147483648' tmp/cloud_controller.yml
 
 # Wait for background jobs and exit 1 if any error happened
 # shellcheck disable=SC2046

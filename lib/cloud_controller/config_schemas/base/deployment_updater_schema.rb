@@ -52,6 +52,8 @@ module VCAP::CloudController
               optional(:pbkdf2_hmac_iterations) => Integer
             },
 
+            cpu_weight_min_memory: Integer,
+            cpu_weight_max_memory: Integer,
             default_app_memory: Integer,
             default_app_disk_in_mb: Integer,
             maximum_app_disk_in_mb: Integer,
@@ -96,10 +98,7 @@ module VCAP::CloudController
               app_package_directory_key: String,
               fog_connection: Hash,
               fog_aws_storage_options: Hash,
-              fog_gcp_storage_options: Hash,
-              optional(:image_registry) => {
-                base_path: String
-              }
+              fog_gcp_storage_options: Hash
             },
 
             droplets: {
@@ -130,6 +129,7 @@ module VCAP::CloudController
 
             statsd_host: String,
             statsd_port: Integer,
+            optional(:enable_statsd_metrics) => bool,
 
             max_labels_per_resource: Integer,
             max_annotations_per_resource: Integer,

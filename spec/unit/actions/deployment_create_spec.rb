@@ -5,6 +5,7 @@ require 'messages/deployment_create_message'
 module VCAP::CloudController
   RSpec.describe DeploymentCreate do
     let(:app) { AppModel.make(desired_state: ProcessModel::STARTED) }
+
     let!(:web_process) { ProcessModel.make(app: app, instances: 3, log_rate_limit: 101) }
     let(:original_droplet) { DropletModel.make(app: app, process_types: { 'web' => 'asdf' }) }
     let(:next_droplet) { DropletModel.make(app: app, process_types: { 'web' => '1234' }) }
@@ -15,10 +16,15 @@ module VCAP::CloudController
     let(:user_audit_info) { UserAuditInfo.new(user_guid: '123', user_email: 'connor@example.com', user_name: 'braa') }
     let(:runner) { instance_double(Diego::Runner) }
 
+    let(:strategy) { 'rolling' }
+    let(:max_in_flight) { 1 }
+
     let(:message) do
       DeploymentCreateMessage.new({
                                     relationships: { app: { data: { guid: app.guid } } },
-                                    droplet: { guid: next_droplet.guid }
+                                    droplet: { guid: next_droplet.guid },
+                                    strategy: strategy,
+                                    options: { max_in_flight: }
                                   })
     end
 
@@ -148,7 +154,8 @@ module VCAP::CloudController
                                            'deployment_guid' => deployment.guid,
                                            'type' => nil,
                                            'revision_guid' => RevisionModel.last.guid,
-                                           'request' => message.audit_hash
+                                           'request' => message.audit_hash,
+                                           'strategy' => 'rolling'
                                          })
           end
 
@@ -315,7 +322,8 @@ module VCAP::CloudController
                                            'deployment_guid' => deployment.guid,
                                            'type' => nil,
                                            'revision_guid' => app.latest_revision.guid,
-                                           'request' => message.audit_hash
+                                           'request' => message.audit_hash,
+                                           'strategy' => 'rolling'
                                          })
           end
 
@@ -372,7 +380,8 @@ module VCAP::CloudController
                                              'deployment_guid' => deployment.guid,
                                              'type' => nil,
                                              'revision_guid' => app_without_current_droplet.latest_revision.guid,
-                                             'request' => message.audit_hash
+                                             'request' => message.audit_hash,
+                                             'strategy' => 'rolling'
                                            })
             end
           end
@@ -484,6 +493,9 @@ module VCAP::CloudController
           end
 
           context 'when the app is stopped' do
+            let(:max_in_flight) { 3 }
+            let(:strategy) { 'canary' }
+
             before do
               app.update(desired_state: ProcessModel::STOPPED)
               app.save
@@ -516,6 +528,8 @@ module VCAP::CloudController
               expect(deployment.previous_droplet).to eq(original_droplet)
               expect(deployment.original_web_process_instance_count).to eq(3)
               expect(deployment.last_healthy_at).to eq(deployment.created_at)
+              expect(deployment.strategy).to eq('canary')
+              expect(deployment.max_in_flight).to eq(3)
             end
 
             it 'records an audit event for the deployment' do
@@ -538,7 +552,8 @@ module VCAP::CloudController
                                              'deployment_guid' => deployment.guid,
                                              'type' => nil,
                                              'revision_guid' => app.latest_revision.guid,
-                                             'request' => message.audit_hash
+                                             'request' => message.audit_hash,
+                                             'strategy' => 'canary'
                                            })
             end
 
@@ -569,6 +584,15 @@ module VCAP::CloudController
                   { key_name: 'superhero', value: 'Bummer-boy' },
                   { key_name: 'superpower', value: 'Bums you out' }
                 )
+              end
+            end
+
+            context 'uses the max_in_flight from the message' do
+              let(:max_in_flight) { 12 }
+
+              it 'saves the max_in_flight' do
+                deployment = DeploymentCreate.create(app:, message:, user_audit_info:)
+                expect(deployment.max_in_flight).to eq(12)
               end
             end
 
@@ -661,6 +685,28 @@ module VCAP::CloudController
             end
           end
 
+          context 'when the message specifies max_in_flight' do
+            let(:message) do
+              DeploymentCreateMessage.new(options: { max_in_flight: 10 })
+            end
+
+            it 'saves the max_in_flight' do
+              deployment = DeploymentCreate.create(app:, message:, user_audit_info:)
+              expect(deployment.max_in_flight).to eq(10)
+            end
+          end
+
+          context 'when the message does not specify max_in_flight' do
+            let(:message) do
+              DeploymentCreateMessage.new({})
+            end
+
+            it 'sets the default' do
+              deployment = DeploymentCreate.create(app:, message:, user_audit_info:)
+              expect(deployment.max_in_flight).to eq(1)
+            end
+          end
+
           context 'when the app is stopped' do
             before do
               app.update(desired_state: ProcessModel::STOPPED)
@@ -708,7 +754,8 @@ module VCAP::CloudController
                                              'deployment_guid' => deployment.guid,
                                              'type' => nil,
                                              'revision_guid' => app.latest_revision.guid,
-                                             'request' => message.audit_hash
+                                             'request' => message.audit_hash,
+                                             'strategy' => 'rolling'
                                            })
             end
 
@@ -867,7 +914,8 @@ module VCAP::CloudController
                                          'deployment_guid' => deployment.guid,
                                          'type' => 'rollback',
                                          'revision_guid' => RevisionModel.last.guid,
-                                         'request' => message.audit_hash
+                                         'request' => message.audit_hash,
+                                         'strategy' => 'rolling'
                                        })
         end
 
@@ -904,7 +952,7 @@ module VCAP::CloudController
                                         })
           end
 
-          it 'will raise a DeploymentCreate::Error with the correct message' do
+          it 'raises a DeploymentCreate::Error with the correct message' do
             expect do
               expect do
                 DeploymentCreate.create(app:, message:, user_audit_info:)
@@ -967,7 +1015,8 @@ module VCAP::CloudController
                                            'deployment_guid' => deployment.guid,
                                            'type' => 'rollback',
                                            'revision_guid' => revision.guid,
-                                           'request' => message.audit_hash
+                                           'request' => message.audit_hash,
+                                           'strategy' => 'rolling'
                                          })
           end
 
@@ -998,6 +1047,96 @@ module VCAP::CloudController
                 { key_name: 'superpower', value: 'Bums you out' }
               )
             end
+          end
+        end
+      end
+
+      context 'strategy' do
+        context 'when the strategy is rolling' do
+          let(:strategy) { 'rolling' }
+          let(:max_in_flight) { 2 }
+
+          it 'creates the deployment with the rolling strategy' do
+            deployment = nil
+
+            expect do
+              deployment = DeploymentCreate.create(app:, message:, user_audit_info:)
+            end.to change(DeploymentModel, :count).by(1)
+
+            expect(deployment.strategy).to eq(DeploymentModel::ROLLING_STRATEGY)
+          end
+
+          it 'creates a process with max_in_flight instances' do
+            DeploymentCreate.create(app:, message:, user_audit_info:)
+
+            deploying_web_process = app.reload.newest_web_process
+            expect(deploying_web_process.instances).to eq(2)
+          end
+
+          it 'sets the deployment state to DEPLOYING' do
+            deployment = nil
+
+            expect do
+              deployment = DeploymentCreate.create(app:, message:, user_audit_info:)
+            end.to change(DeploymentModel, :count).by(1)
+
+            expect(deployment.state).to eq(DeploymentModel::DEPLOYING_STATE)
+          end
+
+          context 'when max_in_flight is more than desired instances' do
+            let(:max_in_flight) { 100 }
+
+            it 'creates a process with number of desired instances' do
+              DeploymentCreate.create(app:, message:, user_audit_info:)
+
+              deploying_web_process = app.reload.newest_web_process
+              expect(deploying_web_process.instances).to eq(3)
+            end
+          end
+        end
+
+        context 'when the strategy is canary' do
+          let(:strategy) { 'canary' }
+
+          it 'creates the deployment with the canary strategy' do
+            deployment = nil
+
+            expect do
+              deployment = DeploymentCreate.create(app:, message:, user_audit_info:)
+            end.to change(DeploymentModel, :count).by(1)
+
+            expect(deployment.strategy).to eq(DeploymentModel::CANARY_STRATEGY)
+          end
+
+          it 'creates a process with a single canary instance' do
+            DeploymentCreate.create(app:, message:, user_audit_info:)
+
+            deploying_web_process = app.reload.newest_web_process
+            expect(deploying_web_process.instances).to eq(1)
+          end
+
+          it 'sets the deployment state to PREPAUSED' do
+            deployment = nil
+
+            expect do
+              deployment = DeploymentCreate.create(app:, message:, user_audit_info:)
+            end.to change(DeploymentModel, :count).by(1)
+
+            expect(deployment.state).to eq(DeploymentModel::PREPAUSED_STATE)
+          end
+        end
+
+        context 'when the strategy is nil' do
+          let(:strategy) { nil }
+
+          it 'defaults to the rolling strategy' do
+            deployment = nil
+
+            expect do
+              deployment = DeploymentCreate.create(app:, message:, user_audit_info:)
+            end.to change(DeploymentModel, :count).by(1)
+
+            expect(deployment.strategy).to eq(DeploymentModel::ROLLING_STRATEGY)
           end
         end
       end

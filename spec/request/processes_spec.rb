@@ -189,7 +189,7 @@ RSpec.describe 'Processes' do
         ]
       }
 
-      parsed_response = MultiJson.load(last_response.body)
+      parsed_response = Oj.load(last_response.body)
 
       expect(last_response.status).to eq(200)
       expect(parsed_response).to be_a_response_like(expected_response)
@@ -209,7 +209,7 @@ RSpec.describe 'Processes' do
         'previous' => nil
       }
 
-      parsed_response = MultiJson.load(last_response.body)
+      parsed_response = Oj.load(last_response.body)
 
       expect(last_response.status).to eq(200)
       expect(parsed_response['resources'].count).to eq(1)
@@ -233,7 +233,7 @@ RSpec.describe 'Processes' do
 
           expect(last_response.status).to eq(200)
 
-          parsed_response = MultiJson.load(last_response.body)
+          parsed_response = Oj.load(last_response.body)
 
           returned_guids = parsed_response['resources'].pluck('guid')
           expect(returned_guids).to contain_exactly(worker_process.guid)
@@ -275,7 +275,7 @@ RSpec.describe 'Processes' do
 
           expect(last_response.status).to eq(200)
 
-          parsed_response = MultiJson.load(last_response.body)
+          parsed_response = Oj.load(last_response.body)
 
           returned_guids = parsed_response['resources'].pluck('guid')
           expect(returned_guids).to contain_exactly(other_space_process.guid)
@@ -315,7 +315,7 @@ RSpec.describe 'Processes' do
 
           expect(last_response.status).to eq(200)
 
-          parsed_response = MultiJson.load(last_response.body)
+          parsed_response = Oj.load(last_response.body)
 
           returned_guids = parsed_response['resources'].pluck('guid')
           expect(returned_guids).to contain_exactly(other_space_process.guid)
@@ -350,7 +350,7 @@ RSpec.describe 'Processes' do
 
           expect(last_response.status).to eq(200)
 
-          parsed_response = MultiJson.load(last_response.body)
+          parsed_response = Oj.load(last_response.body)
 
           returned_guids = parsed_response['resources'].pluck('guid')
           expect(returned_guids).to contain_exactly(desired_process.guid)
@@ -373,7 +373,7 @@ RSpec.describe 'Processes' do
 
           expect(last_response.status).to eq(200)
 
-          parsed_response = MultiJson.load(last_response.body)
+          parsed_response = Oj.load(last_response.body)
 
           returned_guids = parsed_response['resources'].pluck('guid')
           expect(returned_guids).to contain_exactly(web_process.guid, worker_process.guid)
@@ -386,7 +386,7 @@ RSpec.describe 'Processes' do
       let(:api_call) { ->(user_headers) { get '/v3/processes', nil, user_headers } }
 
       let(:expected_codes_and_responses) do
-        h = Hash.new(code: 200, response_guids: [web_process.guid, worker_process.guid])
+        h = Hash.new({ code: 200, response_guids: [web_process.guid, worker_process.guid] }.freeze)
         h['org_auditor'] = { code: 200, response_guids: [] }
         h['org_billing_manager'] = { code: 200, response_guids: [] }
         h['no_role'] = { code: 200, response_objects: [] }
@@ -457,7 +457,7 @@ RSpec.describe 'Processes' do
     it 'retrieves the process' do
       get "/v3/processes/#{process.guid}", nil, developer_headers
 
-      parsed_response = MultiJson.load(last_response.body)
+      parsed_response = Oj.load(last_response.body)
 
       expect(last_response.status).to eq(200)
       expect(parsed_response).to be_a_response_like(expected_response)
@@ -470,7 +470,7 @@ RSpec.describe 'Processes' do
 
       get "/v3/processes/#{process.guid}", nil, headers_for(auditor)
 
-      parsed_response = MultiJson.load(last_response.body)
+      parsed_response = Oj.load(last_response.body)
 
       expect(last_response.status).to eq(200)
       expect(parsed_response['command']).to eq('[PRIVATE DATA HIDDEN]')
@@ -480,7 +480,7 @@ RSpec.describe 'Processes' do
       let(:api_call) { ->(user_headers) { get "/v3/processes/#{process.guid}", nil, user_headers } }
 
       let(:expected_codes_and_responses) do
-        h = Hash.new(code: 200, response_object: expected_response.merge({ 'command' => '[PRIVATE DATA HIDDEN]' }))
+        h = Hash.new({ code: 200, response_object: expected_response.merge({ 'command' => '[PRIVATE DATA HIDDEN]' }) }.freeze)
         h['space_developer'] = { code: 200, response_object: expected_response }
         h['admin'] = { code: 200, response_object: expected_response }
         h['admin_read_only'] = { code: 200, response_object: expected_response }
@@ -536,7 +536,8 @@ RSpec.describe 'Processes' do
             fds_quota: process.file_descriptors,
             usage: {
               time: usage_time,
-              cpu: 80,
+              cpu: 0.8,
+              cpu_entitlement: 0.1,
               mem: 128,
               disk: 1024,
               log_rate: 1024
@@ -560,7 +561,8 @@ RSpec.describe 'Processes' do
           'details' => 'some-details',
           'usage' => {
             'time' => usage_time,
-            'cpu' => 80,
+            'cpu' => 0.8,
+            'cpu_entitlement' => 0.1,
             'mem' => 128,
             'disk' => 1024,
             'log_rate' => 1024
@@ -600,10 +602,25 @@ RSpec.describe 'Processes' do
         it 'retrieves the stats for a process' do
           get "/v3/processes/#{process.guid}/stats", nil, developer_headers
 
-          parsed_response = MultiJson.load(last_response.body)
+          parsed_response = Oj.load(last_response.body)
 
           expect(last_response.status).to eq(200)
           expect(parsed_response).to be_a_response_like(expected_response)
+        end
+      end
+
+      context 'cpu entitlement usage is not available' do
+        before do
+          stats_for_process[0][:stats][:usage][:cpu_entitlement] = nil
+        end
+
+        it 'returns cpu entitlement as null' do
+          get "/v3/processes/#{process.guid}/stats", nil, developer_headers
+
+          parsed_response = Oj.load(last_response.body)
+
+          expect(last_response.status).to eq(200)
+          expect(parsed_response['resources'][0]['usage']['cpu_entitlement']).to be_nil
         end
       end
     end
@@ -612,7 +629,7 @@ RSpec.describe 'Processes' do
       it 'retrieves the stats for a process belonging to an app' do
         get "/v3/apps/#{app_model.guid}/processes/worker/stats", nil, developer_headers
 
-        parsed_response = MultiJson.load(last_response.body)
+        parsed_response = Oj.load(last_response.body)
 
         expect(last_response.status).to eq(200)
         expect(parsed_response).to be_a_response_like(expected_response)
@@ -623,7 +640,7 @@ RSpec.describe 'Processes' do
       let(:api_call) { ->(user_headers) { get "/v3/processes/#{process.guid}/stats", nil, user_headers } }
 
       let(:expected_codes_and_responses) do
-        h = Hash.new(code: 200, response_object: expected_response)
+        h = Hash.new({ code: 200, response_object: expected_response }.freeze)
         h['org_auditor'] = { code: 404 }
         h['org_billing_manager'] = { code: 404, response_object: [] }
         h['no_role'] = { code: 404, response_object: [] }
@@ -728,7 +745,7 @@ RSpec.describe 'Processes' do
       let(:api_call) { ->(user_headers) { patch "/v3/processes/#{process.guid}", update_request, user_headers } }
 
       let(:expected_codes_and_responses) do
-        h = Hash.new(code: 403, errors: CF_NOT_AUTHORIZED)
+        h = Hash.new({ code: 403, errors: CF_NOT_AUTHORIZED }.freeze)
         h['admin'] = { code: 200, response_object: expected_response }
         h['space_developer'] = { code: 200, response_object: expected_response }
         h['space_supporter'] = { code: 200, response_object: expected_response }
@@ -758,7 +775,7 @@ RSpec.describe 'Processes' do
     it 'updates the process' do
       patch "/v3/processes/#{process.guid}", update_request, developer_headers.merge('CONTENT_TYPE' => 'application/json')
 
-      parsed_response = MultiJson.load(last_response.body)
+      parsed_response = Oj.load(last_response.body)
 
       expect(last_response.status).to eq(200)
       expect(parsed_response).to be_a_response_like(expected_response)
@@ -882,7 +899,7 @@ RSpec.describe 'Processes' do
     it 'scales the process' do
       post "/v3/processes/#{process.guid}/actions/scale", scale_request.to_json, developer_headers
 
-      parsed_response = MultiJson.load(last_response.body)
+      parsed_response = Oj.load(last_response.body)
 
       expect(last_response.status).to eq(202)
       expect(parsed_response).to be_a_response_like(expected_response)
@@ -923,7 +940,7 @@ RSpec.describe 'Processes' do
       let(:api_call) { ->(user_headers) { post "/v3/processes/#{process.guid}/actions/scale", scale_request.to_json, user_headers } }
 
       let(:expected_codes_and_responses) do
-        h = Hash.new(code: 403, errors: CF_NOT_AUTHORIZED)
+        h = Hash.new({ code: 403, errors: CF_NOT_AUTHORIZED }.freeze)
         h['admin'] = { code: 202, response_object: expected_response }
         h['space_developer'] = { code: 202, response_object: expected_response }
         h['space_supporter'] = { code: 202, response_object: expected_response }
@@ -1067,7 +1084,7 @@ RSpec.describe 'Processes' do
               'user-id' => OpenSSL::Digest::SHA256.hexdigest(developer.guid)
             }
           }
-          expect_any_instance_of(ActiveSupport::Logger).to receive(:info).with(JSON.generate(expected_json))
+          expect_any_instance_of(ActiveSupport::Logger).to receive(:info).with(Oj.dump(expected_json))
           post "/v3/processes/#{process.guid}/actions/scale", scale_request.to_json, developer_headers
 
           expect(last_response.status).to eq(202), last_response.body
@@ -1114,7 +1131,7 @@ RSpec.describe 'Processes' do
       let(:api_call) { ->(user_headers) { delete "/v3/processes/#{process.guid}/instances/0", nil, user_headers } }
 
       let(:expected_codes_and_responses) do
-        h = Hash.new(code: 403, errors: CF_NOT_AUTHORIZED)
+        h = Hash.new({ code: 403, errors: CF_NOT_AUTHORIZED }.freeze)
         h['admin'] = { code: 204 }
         h['space_developer'] = { code: 204 }
         h['space_supporter'] = { code: 204 }
@@ -1288,7 +1305,7 @@ RSpec.describe 'Processes' do
         ]
       }
 
-      parsed_response = MultiJson.load(last_response.body)
+      parsed_response = Oj.load(last_response.body)
 
       expect(last_response.status).to eq(200)
       expect(parsed_response).to be_a_response_like(expected_response)
@@ -1310,7 +1327,7 @@ RSpec.describe 'Processes' do
 
           expect(last_response.status).to eq(200)
 
-          parsed_response = MultiJson.load(last_response.body)
+          parsed_response = Oj.load(last_response.body)
 
           returned_guids = parsed_response['resources'].pluck('guid')
           expect(returned_guids).to contain_exactly(process2.guid)
@@ -1333,7 +1350,7 @@ RSpec.describe 'Processes' do
 
           expect(last_response.status).to eq(200)
 
-          parsed_response = MultiJson.load(last_response.body)
+          parsed_response = Oj.load(last_response.body)
 
           returned_guids = parsed_response['resources'].pluck('guid')
           expect(returned_guids).to contain_exactly(process1.guid, process2.guid)
@@ -1347,7 +1364,7 @@ RSpec.describe 'Processes' do
       let(:expected_guids) { [process1.guid, process2.guid, process3.guid, deployment_process.guid] }
 
       let(:expected_codes_and_responses) do
-        h = Hash.new(code: 200, response_guids: expected_guids)
+        h = Hash.new({ code: 200, response_guids: expected_guids }.freeze)
         h['org_auditor'] = { code: 404 }
         h['org_billing_manager'] = { code: 404, response_guids: nil }
         h['no_role'] = { code: 404, response_guids: nil }
@@ -1418,7 +1435,7 @@ RSpec.describe 'Processes' do
     it 'retrieves the process for an app with the requested type' do
       get "/v3/apps/#{app_model.guid}/processes/web", nil, developer_headers
 
-      parsed_response = MultiJson.load(last_response.body)
+      parsed_response = Oj.load(last_response.body)
 
       expect(last_response.status).to eq(200)
       expect(parsed_response).to be_a_response_like(expected_response)
@@ -1433,7 +1450,7 @@ RSpec.describe 'Processes' do
 
       get "/v3/apps/#{app_model.guid}/processes/web", nil, headers_for(auditor)
 
-      parsed_response = MultiJson.load(last_response.body)
+      parsed_response = Oj.load(last_response.body)
 
       expect(last_response.status).to eq(200)
       expect(parsed_response['command']).to eq('[PRIVATE DATA HIDDEN]')
@@ -1443,7 +1460,7 @@ RSpec.describe 'Processes' do
       let(:api_call) { ->(user_headers) { get "/v3/apps/#{app_model.guid}/processes/web", nil, user_headers } }
 
       let(:expected_codes_and_responses) do
-        h = Hash.new(code: 200, response_object: expected_response.merge({ 'command' => '[PRIVATE DATA HIDDEN]' }))
+        h = Hash.new({ code: 200, response_object: expected_response.merge({ 'command' => '[PRIVATE DATA HIDDEN]' }) }.freeze)
         h['space_developer'] = { code: 200, response_object: expected_response }
         h['admin'] = { code: 200, response_object: expected_response }
         h['admin_read_only'] = { code: 200, response_object: expected_response }
@@ -1544,7 +1561,7 @@ RSpec.describe 'Processes' do
         }
       }
 
-      parsed_response = MultiJson.load(last_response.body)
+      parsed_response = Oj.load(last_response.body)
 
       expect(last_response.status).to eq(200)
       expect(parsed_response).to be_a_response_like(expected_response)
@@ -1668,7 +1685,7 @@ RSpec.describe 'Processes' do
 
     it 'scales the process belonging to an app' do
       post "/v3/apps/#{app_model.guid}/processes/web/actions/scale", scale_request.to_json, developer_headers
-      parsed_response = MultiJson.load(last_response.body)
+      parsed_response = Oj.load(last_response.body)
 
       expect(last_response.status).to eq(202)
       expect(parsed_response).to be_a_response_like(expected_response)
@@ -1766,7 +1783,7 @@ RSpec.describe 'Processes' do
               'user-id' => OpenSSL::Digest::SHA256.hexdigest(developer.guid)
             }
           }
-          expect_any_instance_of(ActiveSupport::Logger).to receive(:info).with(JSON.generate(expected_json))
+          expect_any_instance_of(ActiveSupport::Logger).to receive(:info).with(Oj.dump(expected_json))
 
           post "/v3/apps/#{app_model.guid}/processes/web/actions/scale", scale_request.to_json, developer_headers
 
@@ -1812,7 +1829,7 @@ RSpec.describe 'Processes' do
       let(:api_call) { ->(user_headers) { delete "/v3/apps/#{app_model.guid}/processes/web/instances/0", nil, user_headers } }
 
       let(:expected_codes_and_responses) do
-        h = Hash.new(code: 403)
+        h = Hash.new({ code: 403 }.freeze)
         h['admin'] = { code: 204 }
         h['space_developer'] = { code: 204 }
         h['space_supporter'] = { code: 204 }

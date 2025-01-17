@@ -1,15 +1,11 @@
 require 'spec_helper'
 require 'migrations/helpers/migration_shared_context'
 
-RSpec.describe 'migration to enable microsecond precision on asg last updated table', isolation: :truncation do
+RSpec.describe 'migration to enable microsecond precision on asg last updated table', isolation: :truncation, type: :migration do
   include_context 'migration' do
     let(:migration_filename) { '20231016094900_microsecond_timestamp_msql_asg_update.rb' }
     let(:ds) do
-      db[:asg_timestamps].with_extend do
-        def supports_timestamp_usecs?
-          true
-        end
-      end
+      db[:asg_timestamps].with_extend(Sequel::Plugins::MicrosecondTimestampPrecision::DatasetMethods)
     end
   end
 
@@ -30,7 +26,7 @@ RSpec.describe 'migration to enable microsecond precision on asg last updated ta
       end
 
       # Change TIMESTAMP to TIMESTAMP(6)
-      expect { Sequel::Migrator.run(db, migration_to_test, allow_missing_migration_files: true) }.not_to raise_error
+      expect { Sequel::Migrator.run(db, migrations_path, target: current_migration_index, allow_missing_migration_files: true) }.not_to raise_error
 
       # the migration shouldn't add accuracy to previously inserted values
       t1_post_migration = ds.first(id: 1)

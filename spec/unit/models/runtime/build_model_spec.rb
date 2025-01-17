@@ -4,19 +4,20 @@ module VCAP::CloudController
   RSpec.describe BuildModel do
     let(:package) { PackageModel.make(state: PackageModel::READY_STATE) }
     let(:build_model) { BuildModel.make(package:) }
-    let!(:lifecycle_data) do
-      BuildpackLifecycleDataModel.make(
-        build: build_model,
-        buildpacks: ['http://some-buildpack.com', 'http://another-buildpack.net']
-      )
-    end
-
-    before do
-      build_model.buildpack_lifecycle_data = lifecycle_data
-      build_model.save
-    end
 
     describe 'associations' do
+      let!(:buildpack_lifecycle_data) do
+        BuildpackLifecycleDataModel.make(
+          build: build_model,
+          buildpacks: ['http://some-buildpack.com', 'http://another-buildpack.net']
+        )
+      end
+
+      before do
+        build_model.buildpack_lifecycle_data = buildpack_lifecycle_data
+        build_model.save
+      end
+
       it 'has a foreign key to app' do
         app = AppModel.make
         BuildModel.make(app:)
@@ -26,6 +27,18 @@ module VCAP::CloudController
       end
 
       describe 'space' do
+        let!(:buildpack_lifecycle_data) do
+          BuildpackLifecycleDataModel.make(
+            build: build_model,
+            buildpacks: ['http://some-buildpack.com', 'http://another-buildpack.net']
+          )
+        end
+
+        before do
+          build_model.buildpack_lifecycle_data = buildpack_lifecycle_data
+          build_model.save
+        end
+
         it 'gets its space from the containing app' do
           space = Space.make
           app = AppModel.make(space:)
@@ -36,54 +49,123 @@ module VCAP::CloudController
     end
 
     describe '#lifecycle_type' do
-      it 'returns the string "buildpack" if buildpack_lifecycle_data is on the model' do
-        expect(build_model.lifecycle_type).to eq('buildpack')
-      end
-
-      it 'returns the string "docker" if there is no buildpack_lifecycle_data is on the model' do
-        build_model.buildpack_lifecycle_data = nil
-        build_model.save
-
-        expect(build_model.lifecycle_type).to eq('docker')
-      end
-    end
-
-    describe '#lifecycle_data' do
-      it 'returns buildpack_lifecycle_data if it is on the model' do
-        expect(build_model.lifecycle_data).to eq(lifecycle_data)
-      end
-
-      context 'kpack' do
-        let(:kpack_lifecycle_data) do
-          KpackLifecycleDataModel.make(
-            build: build_model
+      context 'buildpack_lifecycle_data' do
+        let!(:buildpack_lifecycle_data) do
+          BuildpackLifecycleDataModel.make(
+            build: build_model,
+            buildpacks: ['http://some-buildpack.com', 'http://another-buildpack.net']
           )
         end
 
         before do
-          build_model.buildpack_lifecycle_data = nil
-          build_model.kpack_lifecycle_data = kpack_lifecycle_data
+          build_model.buildpack_lifecycle_data = buildpack_lifecycle_data
           build_model.save
         end
 
-        it 'returns kpack_lifecycle_data if it is on the model' do
-          expect(build_model.lifecycle_data).to eq(kpack_lifecycle_data)
+        it 'returns the string "buildpack"' do
+          expect(build_model.lifecycle_type).to eq('buildpack')
         end
       end
 
-      it 'is a persistable hash' do
-        expect(build_model.reload.lifecycle_data.buildpacks).to eq(lifecycle_data.buildpacks)
-        expect(build_model.reload.lifecycle_data.stack).to eq(lifecycle_data.stack)
+      context 'cnb_lifecycle_data' do
+        let!(:cnb_lifecycle_data) do
+          CNBLifecycleDataModel.make(
+            build: build_model,
+            buildpacks: ['http://some-buildpack.com', 'http://another-buildpack.net']
+          )
+        end
+
+        before do
+          build_model.cnb_lifecycle_data = cnb_lifecycle_data
+          build_model.save
+        end
+
+        it 'returns the string "cnb"' do
+          expect(build_model.lifecycle_type).to eq('cnb')
+        end
       end
 
-      it 'returns a docker lifecycle model if there is no buildpack_lifecycle_model' do
-        build_model.buildpack_lifecycle_data = nil
-        build_model.save
+      context 'no lifecycle_data' do
+        it 'returns the string "docker"' do
+          build_model.buildpack_lifecycle_data = nil
+          build_model.save
 
-        expect(build_model.lifecycle_data).to be_a(DockerLifecycleDataModel)
+          expect(build_model.lifecycle_type).to eq('docker')
+        end
+      end
+    end
+
+    describe '#lifecycle_data' do
+      context 'buildpack_lifecycle_data' do
+        let!(:buildpack_lifecycle_data) do
+          BuildpackLifecycleDataModel.make(
+            build: build_model,
+            buildpacks: ['http://some-buildpack.com', 'http://another-buildpack.net']
+          )
+        end
+
+        before do
+          build_model.buildpack_lifecycle_data = buildpack_lifecycle_data
+          build_model.save
+        end
+
+        it 'returns buildpack_lifecycle_data' do
+          expect(build_model.lifecycle_data).to eq(buildpack_lifecycle_data)
+        end
+
+        it 'is a persistable hash' do
+          expect(build_model.reload.lifecycle_data.buildpacks).to eq(buildpack_lifecycle_data.buildpacks)
+          expect(build_model.reload.lifecycle_data.stack).to eq(buildpack_lifecycle_data.stack)
+        end
+      end
+
+      context 'cnb_lifecycle_data' do
+        let!(:cnb_lifecycle_data) do
+          CNBLifecycleDataModel.make(
+            build: build_model,
+            buildpacks: ['http://some-buildpack.com', 'http://another-buildpack.net']
+          )
+        end
+
+        before do
+          build_model.cnb_lifecycle_data = cnb_lifecycle_data
+          build_model.save
+        end
+
+        it 'returns cnb_lifecycle_data' do
+          expect(build_model.lifecycle_data).to eq(cnb_lifecycle_data)
+        end
+
+        it 'is a persistable hash' do
+          expect(build_model.reload.cnb_lifecycle_data.buildpacks).to eq(cnb_lifecycle_data.buildpacks)
+          expect(build_model.reload.cnb_lifecycle_data.stack).to eq(cnb_lifecycle_data.stack)
+        end
+
+        it 'deletes the dependent cnb_lifecycle_data_models when a build is deleted' do
+          expect do
+            build_model.destroy
+          end.to change(CNBLifecycleDataModel, :count).by(-1).
+            and change(BuildpackLifecycleBuildpackModel, :count).by(-2)
+        end
+      end
+
+      context 'no lifecycle_data' do
+        it 'returns a docker lifecycle model' do
+          build_model.buildpack_lifecycle_data = nil
+          build_model.save
+
+          expect(build_model.lifecycle_data).to be_a(DockerLifecycleDataModel)
+        end
       end
 
       context 'buildpack dependencies' do
+        let!(:buildpack_lifecycle_data) do
+          BuildpackLifecycleDataModel.make(
+            build: build_model,
+            buildpacks: ['http://some-buildpack.com', 'http://another-buildpack.net']
+          )
+        end
+
         it 'deletes the dependent buildpack_lifecycle_data_models when a build is deleted' do
           expect do
             build_model.destroy
@@ -239,7 +321,18 @@ module VCAP::CloudController
     end
 
     describe '#record_staging_stopped' do
-      before { build_model.update(state: BuildModel::STAGING_STATE) }
+      let!(:buildpack_lifecycle_data) do
+        BuildpackLifecycleDataModel.make(
+          build: build_model,
+          buildpacks: ['http://some-buildpack.com', 'http://another-buildpack.net']
+        )
+      end
+
+      before do
+        build_model.buildpack_lifecycle_data = buildpack_lifecycle_data
+        build_model.save
+        build_model.update(state: BuildModel::STAGING_STATE)
+      end
 
       it 'creates an app usage event for STAGING_STOPPED' do
         expect do
@@ -284,10 +377,10 @@ module VCAP::CloudController
           expect(annotation).not_to exist
         end
 
-        it 'complains when we delete the build without deleting associated metadata' do
+        it 'deletes metadata on delete due to DELETE CASCADE foreign key' do
           expect do
             build_model.delete
-          end.to raise_error(Sequel::ForeignKeyConstraintViolation)
+          end.not_to raise_error
         end
       end
     end

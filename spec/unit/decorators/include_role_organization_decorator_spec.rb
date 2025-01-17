@@ -5,23 +5,22 @@ module VCAP::CloudController
   RSpec.describe IncludeRoleOrganizationDecorator do
     subject(:decorator) { IncludeRoleOrganizationDecorator }
 
-    let(:organization1) { Organization.make(name: 'first-organization') }
+    let(:organization1) { Organization.make(name: 'first-organization', created_at: Time.now.utc - 1.second) }
     let(:organization2) { Organization.make(name: 'second-organization') }
-    let(:orguser) { OrganizationUser.make(organization: organization1) }
-    let(:orgauditor) { OrganizationAuditor.make(organization: organization2) }
-    let(:roles) do
-      [
-        Role.where(user_id: orguser.user_id, organization_id: organization1.id).first,
-        Role.where(user_id: orgauditor.user_id, organization_id: organization2.id).first
-      ]
-    end
 
-    it 'decorates the given hash with organizations from roles' do
+    let(:org_user) { OrganizationUser.make(organization: organization1) }
+    let(:org_auditor) { OrganizationAuditor.make(organization: organization2) }
+    let(:space_manager) { SpaceManager.make }
+
+    # roles is an array of VCAP::CloudController::Role objects
+    let(:roles) { Role.where(guid: [org_user, org_auditor, space_manager].map(&:guid)).all }
+
+    it 'decorates the given hash with organizations from roles in the correct order' do
       wreathless_hash = { foo: 'bar' }
       hash = subject.decorate(wreathless_hash, roles)
       expect(hash[:foo]).to eq('bar')
-      expect(hash[:included][:organizations]).to contain_exactly(Presenters::V3::OrganizationPresenter.new(organization1).to_hash,
-                                                                 Presenters::V3::OrganizationPresenter.new(organization2).to_hash)
+      expect(hash[:included][:organizations]).to eq([Presenters::V3::OrganizationPresenter.new(organization1).to_hash,
+                                                     Presenters::V3::OrganizationPresenter.new(organization2).to_hash])
     end
 
     it 'does not overwrite other included fields' do
@@ -33,13 +32,23 @@ module VCAP::CloudController
       expect(hash[:included][:monkeys]).to match_array(%w[zach greg])
     end
 
+    context 'only space roles' do
+      let!(:roles) { Role.where(guid: space_manager.guid).all }
+
+      it 'does not query the database' do
+        expect do
+          subject.decorate({}, roles)
+        end.to have_queried_db_times(/select \* from .organizations. where/i, 0)
+      end
+    end
+
     describe '.match?' do
       it 'matches include arrays containing "organization"' do
-        expect(decorator).to be_match(%w[potato organization turnip])
+        expect(decorator.match?(%w[potato organization turnip])).to be(true)
       end
 
       it 'does not match other include arrays' do
-        expect(decorator).not_to be_match(%w[potato turnip])
+        expect(decorator.match?(%w[potato turnip])).not_to be(true)
       end
     end
   end

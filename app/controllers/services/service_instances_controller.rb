@@ -1,4 +1,3 @@
-require 'vcap/services/api'
 require 'jobs/audit_event_job'
 require 'actions/services/service_instance_create'
 require 'actions/services/service_instance_update'
@@ -11,6 +10,7 @@ require 'presenters/v2/service_instance_shared_to_presenter'
 require 'presenters/v2/service_instance_shared_from_presenter'
 
 module VCAP::CloudController
+  # rubocop:disable Metrics/ClassLength
   class ServiceInstancesController < RestController::ModelController
     include VCAP::CloudController::LockCheck
 
@@ -143,6 +143,10 @@ module VCAP::CloudController
       raise CloudController::Errors::ApiError.new_from_details('AsyncServiceBindingOperationInProgress', e.service_binding.app.name, e.service_binding.service_instance.name)
     end
 
+    deprecated_endpoint '/v2/managed_service_instances'
+    get '/v2/managed_service_instances', :enumerate
+    get '/v2/managed_service_instances/:guid', :read
+
     def read(guid)
       service_instance = find_guid_and_validate_access(:read, guid, ServiceInstance)
 
@@ -210,17 +214,17 @@ module VCAP::CloudController
       manage_permissions = @access_context.can?(:manage_permissions, service_instance)
       read_permissions = @access_context.can?(:read_permissions, service_instance)
 
-      [HTTP::OK, JSON.generate({
-                                 manage: manage_permissions,
-                                 read: read_permissions
-                               })]
+      [HTTP::OK, Oj.dump({
+                           manage: manage_permissions,
+                           read: read_permissions
+                         }, mode: :compat)]
     rescue CloudController::Errors::ApiError => e
       raise e unless e.name == 'NotAuthorized'
 
-      [HTTP::OK, JSON.generate({
-                                 manage: false,
-                                 read: false
-                               })]
+      [HTTP::OK, Oj.dump({
+                           manage: false,
+                           read: false
+                         }, mode: :compat)]
     end
 
     get '/v2/service_instances/:guid/shared_from', :shared_from_information
@@ -229,7 +233,7 @@ module VCAP::CloudController
 
       return HTTP::NO_CONTENT unless service_instance.shared?
 
-      [HTTP::OK, JSON.generate(CloudController::Presenters::V2::ServiceInstanceSharedFromPresenter.new.to_hash(service_instance.space))]
+      [HTTP::OK, Oj.dump(CloudController::Presenters::V2::ServiceInstanceSharedFromPresenter.new.to_hash(service_instance.space), mode: :compat)]
     rescue CloudController::Errors::ApiError => e
       return HTTP::NOT_FOUND if e.name == 'NotAuthorized'
 
@@ -240,8 +244,6 @@ module VCAP::CloudController
     def enumerate_shared_to_information(guid)
       service_instance = find_service_instance(guid)
       validate_service_instance_access(service_instance)
-
-      validate_access(:read, service_instance.space)
 
       associated_controller = VCAP::CloudController::SpacesController
       associated_path = "#{self.class.url_for_guid(guid, service_instance)}/shared_to"
@@ -344,7 +346,7 @@ module VCAP::CloudController
     end
 
     def add_related(guid, name, other_guid, find_model=model)
-      return super(guid, name, other_guid, find_model) if name != :routes
+      return super if name != :routes
 
       req_body = body.string.blank? ? '{}' : body
 
@@ -380,7 +382,7 @@ module VCAP::CloudController
     end
 
     def remove_related(guid, name, other_guid, find_model=model)
-      return super(guid, name, other_guid, find_model) if name != :routes
+      return super if name != :routes
 
       unbind_route(other_guid, guid)
     end
@@ -600,4 +602,5 @@ module VCAP::CloudController
       service_instance.clone.set(request_attrs.select { |k, _v| ServiceInstanceUpdate::KEYS_TO_UPDATE_CC.include? k })
     end
   end
+  # rubocop:enable Metrics/ClassLength
 end

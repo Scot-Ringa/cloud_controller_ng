@@ -18,12 +18,15 @@ module VCAP::CloudController
 
       let(:buildpack_completion_handler) { instance_double(Diego::Buildpack::StagingCompletionHandler) }
       let(:docker_completion_handler) { instance_double(Diego::Docker::StagingCompletionHandler) }
+      let(:cnb_completion_handler) { instance_double(Diego::CNB::StagingCompletionHandler) }
 
       before do
         allow(Diego::Buildpack::StagingCompletionHandler).to receive(:new).with(build).and_return(buildpack_completion_handler)
         allow(Diego::Docker::StagingCompletionHandler).to receive(:new).with(build).and_return(docker_completion_handler)
+        allow(Diego::CNB::StagingCompletionHandler).to receive(:new).with(build).and_return(cnb_completion_handler)
         allow(buildpack_completion_handler).to receive(:staging_complete)
         allow(docker_completion_handler).to receive(:staging_complete)
+        allow(cnb_completion_handler).to receive(:staging_complete)
         allow(Diego::Messenger).to receive(:new).and_return(messenger)
       end
 
@@ -61,20 +64,62 @@ module VCAP::CloudController
         end
 
         context 'when the stage fails' do
-          let(:error) do
-            { error: { id: 'StagingError', message: 'Stager error: staging failed' } }
+          describe 'with an APIError' do
+            let(:error) do
+              { error: { id: 'StagingError', message: 'Stager error: staging failed' } }
+            end
+
+            before do
+              allow(messenger).to receive(:send_stage_request).and_raise(CloudController::Errors::ApiError.new_from_details('StagerError', 'staging failed'))
+            end
+
+            it 'calls the completion handler with the error' do
+              expect do
+                stager.stage(staging_details)
+              end.to raise_error(CloudController::Errors::ApiError)
+              package.reload
+              expect(buildpack_completion_handler).to have_received(:staging_complete).with(error, false)
+            end
           end
 
-          before do
-            allow(messenger).to receive(:send_stage_request).and_raise(CloudController::Errors::ApiError.new_from_details('StagerError', 'staging failed'))
-          end
+          describe 'with any other error' do
+            let(:error) do
+              { error: { id: 'StagingError', message: 'Stager error: something is very wrong' } }
+            end
 
-          it 'calls the completion handler with the error' do
-            expect do
-              stager.stage(staging_details)
-            end.to raise_error(CloudController::Errors::ApiError)
-            package.reload
-            expect(buildpack_completion_handler).to have_received(:staging_complete).with(error, false)
+            before do
+              allow(messenger).to receive(:send_stage_request).and_raise(StandardError.new('something is very wrong'))
+            end
+
+            it 'calls the completion handler with the error' do
+              expect do
+                stager.stage(staging_details)
+              end.to raise_error(CloudController::Errors::ApiError)
+              package.reload
+              expect(buildpack_completion_handler).to have_received(:staging_complete).with(error, false)
+            end
+
+            it 'logs the original error, with a stack trace' do
+              tail_logs do |logs|
+                expect do
+                  stager.stage(staging_details)
+                end.to raise_error(CloudController::Errors::ApiError)
+
+                expect(
+                  logs.read.find { |l| l['message'] == 'stage.package.error' }
+                ).to match(
+                  hash_including(
+                    'message' => 'stage.package.error',
+                    'data' => {
+                      'package_guid' => package.guid,
+                      'staging_guid' => build.guid,
+                      'error' => 'something is very wrong',
+                      'backtrace' => array_including(/and_raise/)
+                    }
+                  )
+                )
+              end
+            end
           end
         end
       end
@@ -101,6 +146,18 @@ module VCAP::CloudController
             stager.staging_complete(build, staging_response)
             expect(buildpack_completion_handler).not_to have_received(:staging_complete)
             expect(docker_completion_handler).to have_received(:staging_complete).with(staging_response, boolean)
+          end
+        end
+
+        context 'cnb' do
+          let(:build) { BuildModel.make }
+          let!(:lifecycle_data_model) { CNBLifecycleDataModel.make(build:) }
+
+          it 'delegates to a cnb staging completion handler' do
+            stager.staging_complete(build, staging_response)
+            expect(buildpack_completion_handler).not_to have_received(:staging_complete)
+            expect(docker_completion_handler).not_to have_received(:staging_complete)
+            expect(cnb_completion_handler).to have_received(:staging_complete).with(staging_response, boolean)
           end
         end
       end

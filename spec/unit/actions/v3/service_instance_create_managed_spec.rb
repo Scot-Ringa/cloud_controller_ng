@@ -123,14 +123,19 @@ module VCAP::CloudController
           end
 
           context "when the last operation is in state 'create failed'" do
+            let(:fake_orphan_mitigator) { instance_double(VCAP::Services::ServiceBrokers::V2::OrphanMitigator) }
+
             before do
               instance.save_with_new_operation({}, { type: 'create', state: 'failed' })
+              allow(VCAP::Services::ServiceBrokers::V2::OrphanMitigator).to receive(:new).and_return(fake_orphan_mitigator)
+              allow(fake_orphan_mitigator).to receive(:cleanup_failed_provision).with(instance)
             end
 
             it 'deletes the existing service instance and creates a new one' do
               service_instance = action.precursor(message:, service_plan:)
 
               expect(service_instance.guid).not_to eq(instance.guid)
+              expect(fake_orphan_mitigator).to have_received(:cleanup_failed_provision).with(instance)
               expect(service_instance.last_operation.type).to eq('create')
               expect(service_instance.last_operation.state).to eq('initial')
             end
@@ -211,6 +216,23 @@ module VCAP::CloudController
 
             expect { action.precursor(message:, service_plan:) }.
               to raise_error(ServiceInstanceCreateManaged::InvalidManagedServiceInstance, 'blork is busted')
+          end
+        end
+
+        context 'parallel creation of managed service instances' do
+          it 'ensures one creation is successful and the other fails due to name conflict' do
+            # First request, should succeed
+            expect do
+              action.precursor(message:, service_plan:)
+            end.not_to raise_error
+
+            # Mock the validation for the second request to simulate the race condition and trigger a unique constraint violation
+            allow_any_instance_of(ManagedServiceInstance).to receive(:validate).and_return(true)
+
+            # Second request, should fail with correct error message
+            expect do
+              action.precursor(message:, service_plan:)
+            end.to raise_error(ServiceInstanceCreateManaged::InvalidManagedServiceInstance, 'The service instance name is taken: si-test-name.')
           end
         end
 

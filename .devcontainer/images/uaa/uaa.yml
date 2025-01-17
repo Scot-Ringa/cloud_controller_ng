@@ -1,0 +1,17 @@
+# This file contains additional config for the UAA container which will be loaded automatically during startup
+
+scim:
+  users:
+    - ccadmin|secret|scim.write,cloud_controller.admin
+    - ccadminreader|secret|scim.write,cloud_controller.admin_read_only
+    - ccreader|secret|scim.write,cloud_controller.read
+    - ccwriter|secret|scim.write,cloud_controller.write
+    - ccauditor|secret|scim.write,cloud_controller.global_auditor
+oauth:
+  clients:
+    cc-service-dashboards:
+      authorities: clients.read,clients.write,clients.admin
+      authorized-grant-types: client_credentials
+      secret: some-sekret
+      scope: openid,cloud_controller_service_permissions.read
+      id: cc-service-dashboards

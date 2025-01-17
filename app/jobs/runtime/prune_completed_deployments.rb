@@ -13,24 +13,23 @@ module VCAP::CloudController
           logger.info('Cleaning up old deployments')
 
           guids_for_apps_with_deployments = DeploymentModel.
-                                            distinct(:app_guid).
-                                            map(&:app_guid)
+                                            distinct.
+                                            select_map(:app_guid)
 
           guids_for_apps_with_deployments.each do |app_guid|
             deployments_dataset = DeploymentModel.where(app_guid:)
 
             deployments_to_keep = deployments_dataset.
-                                  order(Sequel.desc(:created_at)).
+                                  order(Sequel.desc(:created_at), Sequel.desc(:id)).
                                   limit(max_retained_deployments_per_app).
                                   select(:id)
 
             deployments_to_delete = deployments_dataset.
-                                    exclude(state: [DeploymentModel::DEPLOYING_STATE, DeploymentModel::CANCELING_STATE]).
+                                    exclude(state: DeploymentModel::ACTIVE_STATES).
                                     exclude(id: deployments_to_keep)
 
-            DeploymentDelete.delete(deployments_to_delete)
-
-            logger.info("Cleaned up #{deployments_to_delete.count} DeploymentModel rows for app #{app_guid}")
+            delete_count = DeploymentDelete.delete(deployments_to_delete)
+            logger.info("Cleaned up #{delete_count} DeploymentModel rows for app #{app_guid}")
           end
         end
 

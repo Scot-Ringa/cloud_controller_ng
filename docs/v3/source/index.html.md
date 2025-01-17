@@ -81,6 +81,7 @@ includes:
   - resources/apps/start
   - resources/apps/stop
   - resources/apps/restart
+  - resources/apps/clear_buildpack_cache
   - resources/apps/update_environment_variables
   - resources/app_features/header
   - resources/app_features/object
@@ -119,6 +120,7 @@ includes:
   - resources/deployments/list
   - resources/deployments/update
   - resources/deployments/cancel
+  - resources/deployments/continue
   - resources/domains/header
   - resources/domains/object
   - resources/domains/create
@@ -241,6 +243,7 @@ includes:
   - resources/routes/header
   - resources/routes/object
   - resources/routes/destination_object
+  - resources/routes/route_options_object
   - resources/routes/create
   - resources/routes/get
   - resources/routes/list

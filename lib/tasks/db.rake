@@ -1,5 +1,4 @@
 require 'httpclient'
-require 'retryable'
 
 namespace :db do
   desc 'Create a Sequel migration in ./db/migrate'
@@ -123,9 +122,9 @@ namespace :db do
   task ensure_migrations_are_current: :environment do
     RakeConfig.context = :migrate
 
-    Steno.init(Steno::Config.new(sinks: [Steno::Sink::IO.new($stdout)]))
+    logging_output
     db_logger = Steno.logger('cc.db.migrations')
-    VCAP::CloudController::Encryptor.db_encryption_key = RakeConfig.config.get(:db_encryption_key)
+    RakeConfig.config.load_db_encryption_key
     db = VCAP::CloudController::DB.connect(RakeConfig.config.get(:db), db_logger)
 
     latest_migration_in_db = db[:schema_migrations].order(Sequel.desc(:filename)).first[:filename]
@@ -222,34 +221,65 @@ namespace :db do
   end
 
   namespace :parallel do
-    desc 'Drop and create the database set in spec/support/bootstrap/db_config in parallel'
+    desc 'Drop and create / migrate the database set in spec/support/bootstrap/db_config in parallel'
     task recreate: %w[parallel:drop parallel:create]
+    task migrate: %w[parallel:migrate]
   end
 
   def connect
-    Steno.init(Steno::Config.new(sinks: [Steno::Sink::IO.new($stdout)]))
+    logging_output
     logger = Steno.logger('cc.db.connect')
-    log_method = lambda do |retries, exception|
-      logger.info("[Attempt ##{retries}] Retrying because [#{exception.class} - #{exception.message}]: #{exception.backtrace.first(5).join(' | ')}")
-    end
 
-    Retryable.retryable(sleep: 1, tries: 60, log_method: log_method) do
+    tries = 0
+    begin
       VCAP::CloudController::DB.connect(RakeConfig.config.get(:db), logger)
+    rescue StandardError => e
+      tries += 1
+      logger.info("[Attempt ##{tries}] Retrying because [#{e.class} - #{e.message}]: #{e.backtrace.first(5).join(' | ')}")
+      sleep 1
+      retry if tries < 60
+      raise
     end
 
     logger.info('Successfully connected to database')
   end
 
   def migrate
-    Steno.init(Steno::Config.new(sinks: [Steno::Sink::IO.new($stdout)]))
+    # The following block, which loads the test DB config is only needed for running migrations in parallel (only in tests)
+    # It sets the `DB_CONNECTION_STRING` env variable from `POSTGRES|MYSQL_CONNECTION_PREFIX` + test_database number
+    begin
+      require_relative '../../spec/support/bootstrap/db_config'
+      DbConfig.new
+    rescue LoadError
+      # In production the test DB config is not available nor needed, so we ignore this error.
+    end
+
+    logging_output
     db_logger = Steno.logger('cc.db.migrations')
     DBMigrator.from_config(RakeConfig.config, db_logger).apply_migrations
   end
 
   def rollback(number_to_rollback)
-    Steno.init(Steno::Config.new(sinks: [Steno::Sink::IO.new($stdout)]))
+    # The following block, which loads the test DB config is only needed for running migrations in parallel (only in tests)
+    # It sets the `DB_CONNECTION_STRING` env variable from `POSTGRES|MYSQL_CONNECTION_PREFIX` + test_database number
+    begin
+      require_relative '../../spec/support/bootstrap/db_config'
+      DbConfig.new
+    rescue LoadError
+      # In production the test DB config is not available nor needed, so we ignore this error.
+    end
+
+    logging_output
     db_logger = Steno.logger('cc.db.migrations')
     DBMigrator.from_config(RakeConfig.config, db_logger).rollback(number_to_rollback)
+  end
+
+  def logging_output
+    VCAP::CloudController::StenoConfigurer.new(RakeConfig.config.get(:logging)).configure do |steno_config_hash|
+      if RakeConfig.config.get(:logging, :stdout_sink_enabled).nil? || RakeConfig.config.get(:logging, :stdout_sink_enabled)
+        steno_config_hash[:sinks] << Steno::Sink::IO.new($stdout)
+      end
+    end
   end
 
   def parse_db_connection_string

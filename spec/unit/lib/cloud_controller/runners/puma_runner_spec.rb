@@ -12,8 +12,10 @@ module VCAP::CloudController
     let(:periodic_updater) { double(:periodic_updater) }
     let(:request_logs) { double(:request_logs) }
     let(:puma_launcher) { subject.instance_variable_get(:@puma_launcher) }
+    let(:dependency_locator) { instance_spy(CloudController::DependencyLocator) }
+    let(:prometheus_updater) { spy(VCAP::CloudController::Metrics::PrometheusUpdater) }
 
-    subject do
+    let(:test_config) do
       TestConfig.override(
         external_port: port,
         nginx: {
@@ -25,11 +27,16 @@ module VCAP::CloudController
           max_threads: max_threads
         }
       )
-      PumaRunner.new(TestConfig.config_instance, app, logger, periodic_updater, request_logs)
+    end
+
+    subject do
+      PumaRunner.new(test_config, app, logger, periodic_updater, request_logs)
     end
 
     before do
       allow(logger).to receive(:info)
+      allow(CloudController::DependencyLocator).to receive(:instance).and_return(dependency_locator)
+      allow(dependency_locator).to receive(:prometheus_updater).and_return(prometheus_updater)
     end
 
     describe 'initialize' do
@@ -49,6 +56,15 @@ module VCAP::CloudController
         expect(puma_launcher.config.final_options[:binds].first).to eq("unix://#{socket}")
       end
 
+      context 'when socket is not configured' do
+        let(:socket) { '' }
+
+        it 'binds to the nginx default port 3000' do
+          subject
+          expect(puma_launcher.config.final_options[:binds].first).to eq('tcp://0.0.0.0:3000')
+        end
+      end
+
       context 'when not using nginx' do
         let(:use_nginx) { false }
 
@@ -63,7 +79,7 @@ module VCAP::CloudController
         subject
 
         expect(puma_launcher.config.final_options[:workers]).to eq(num_workers)
-        expect(puma_launcher.config.final_options[:min_threads]).to eq(0)
+        expect(puma_launcher.config.final_options[:min_threads]).to eq(max_threads)
         expect(puma_launcher.config.final_options[:max_threads]).to eq(max_threads)
       end
 
@@ -75,6 +91,53 @@ module VCAP::CloudController
           subject
 
           expect(puma_launcher.config.final_options[:workers]).to eq(1)
+          expect(puma_launcher.config.final_options[:min_threads]).to eq(1)
+          expect(puma_launcher.config.final_options[:max_threads]).to eq(1)
+        end
+      end
+
+      context 'when setting "automatic_worker_count" to false' do
+        let(:test_config) do
+          TestConfig.override(
+            puma: {
+              workers: 1,
+              automatic_worker_count: false
+            }
+          )
+        end
+
+        before do
+          allow(::Concurrent).to receive(:available_processor_count).and_return 8
+        end
+
+        it 'configures number of workers to the detected number of cores' do
+          subject
+
+          expect(puma_launcher.config.final_options[:workers]).to eq(1)
+          expect(puma_launcher.config.final_options[:min_threads]).to eq(1)
+          expect(puma_launcher.config.final_options[:max_threads]).to eq(1)
+        end
+      end
+
+      context 'when setting "automatic_worker_count" to true' do
+        let(:test_config) do
+          TestConfig.override(
+            puma: {
+              workers: 1,
+              automatic_worker_count: true
+            }
+          )
+        end
+
+        before do
+          allow(::Concurrent).to receive(:available_processor_count).and_return 8
+        end
+
+        it 'configures number of workers the specified number of workers' do
+          subject
+
+          expect(puma_launcher.config.final_options[:workers]).to eq(8)
+          expect(puma_launcher.config.final_options[:min_threads]).to eq(1)
           expect(puma_launcher.config.final_options[:max_threads]).to eq(1)
         end
       end
@@ -99,6 +162,20 @@ module VCAP::CloudController
         expect(request_logs).to receive(:log_incomplete_requests)
         puma_launcher.config.final_options[:before_worker_shutdown].first.call
       end
+
+      it 'initializes the cc_db_connection_pool_timeouts_total for the worker on worker boot' do
+        subject
+
+        expect(prometheus_updater).to receive(:update_gauge_metric).with(:cc_db_connection_pool_timeouts_total, 0, labels: { process_type: 'puma_worker' })
+        puma_launcher.config.final_options[:before_worker_boot].first.call
+      end
+
+      it 'sets environment variable `PROCESS_TYPE` to `puma_worker`' do
+        subject
+
+        puma_launcher.config.final_options[:before_worker_boot].first.call
+        expect(ENV.fetch('PROCESS_TYPE')).to eq('puma_worker')
+      end
     end
 
     describe 'start!' do
@@ -118,10 +195,11 @@ module VCAP::CloudController
 
     describe 'Events' do
       describe 'on_booted' do
-        it 'sets up periodic metrics updater with EM' do
+        it 'sets up periodic metrics updater with EM and initializes cc_db_connection_pool_timeouts_total for the main process' do
           expect(Thread).to receive(:new).and_yield
           expect(EM).to receive(:run).and_yield
           expect(periodic_updater).to receive(:setup_updates)
+          expect(prometheus_updater).to receive(:update_gauge_metric).with(:cc_db_connection_pool_timeouts_total, 0, labels: { process_type: 'main' })
 
           puma_launcher.events.fire(:on_booted)
         end
@@ -133,6 +211,20 @@ module VCAP::CloudController
 
           puma_launcher.events.fire(:on_stopped)
         end
+      end
+    end
+
+    describe 'Logging' do
+      it 'LogWriter.log uses Steno logger with :info level' do
+        expect(logger).to receive(:log).with(:info, /log message/)
+
+        puma_launcher.log_writer.log('log message')
+      end
+
+      it 'LogWriter.error uses Steno logger with :error level' do
+        expect(logger).to receive(:log).with(:error, /ERROR: error message/)
+
+        expect { puma_launcher.log_writer.error('error message') }.to raise_error(SystemExit)
       end
     end
   end

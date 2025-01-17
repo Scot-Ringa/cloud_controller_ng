@@ -4,33 +4,56 @@ require 'decorators/include_binding_app_decorator'
 module VCAP::CloudController
   RSpec.describe IncludeBindingAppDecorator do
     subject(:decorator) { IncludeBindingAppDecorator }
-    let(:bindings) { [ServiceBinding.make, ServiceBinding.make, ServiceBinding.make] }
-    let(:apps) do
-      bindings.map { |b| Presenters::V3::AppPresenter.new(b.app).to_hash }
+    let(:service_credential_bindings) { ServiceCredentialBinding::View.dataset.all }
+
+    context 'service bindings' do
+      let!(:bindings) do
+        service_instance = ManagedServiceInstance.make
+        app = AppModel.make(space: service_instance.space, created_at: Time.now.utc - 1.second)
+
+        [
+          ServiceBinding.make(service_instance:, app:),
+          ServiceBinding.make
+        ]
+      end
+
+      let(:apps) do
+        bindings.map { |b| Presenters::V3::AppPresenter.new(b.app).to_hash }
+      end
+
+      it 'decorates the given hash with apps from bindings in the correct order' do
+        dict = { foo: 'bar' }
+        hash = subject.decorate(dict, service_credential_bindings)
+        expect(hash[:foo]).to eq('bar')
+        expect(hash[:included][:apps]).to eq(apps)
+      end
+
+      it 'does not overwrite other included fields' do
+        dict = { foo: 'bar', included: { fruits: %w[tomato banana] } }
+        hash = subject.decorate(dict, service_credential_bindings)
+        expect(hash[:foo]).to eq('bar')
+        expect(hash[:included][:apps]).to match_array(apps)
+        expect(hash[:included][:fruits]).to match_array(%w[tomato banana])
+      end
     end
 
-    it 'decorates the given hash with apps from bindings' do
-      dict = { foo: 'bar' }
-      hash = subject.decorate(dict, bindings)
-      expect(hash[:foo]).to eq('bar')
-      expect(hash[:included][:apps]).to match_array(apps)
-    end
+    context 'service keys' do
+      let(:keys) { [ServiceKey.make] }
 
-    it 'does not overwrite other included fields' do
-      dict = { foo: 'bar', included: { fruits: %w[tomato banana] } }
-      hash = subject.decorate(dict, bindings)
-      expect(hash[:foo]).to eq('bar')
-      expect(hash[:included][:apps]).to match_array(apps)
-      expect(hash[:included][:fruits]).to match_array(%w[tomato banana])
+      it 'does not query the database' do
+        expect do
+          subject.decorate({}, service_credential_bindings)
+        end.to have_queried_db_times(/select \* from .apps. where/i, 0)
+      end
     end
 
     describe '.match?' do
       it 'matches include arrays containing "app"' do
-        expect(decorator).to be_match(%w[potato app turnip])
+        expect(decorator.match?(%w[potato app turnip])).to be(true)
       end
 
       it 'does not match other include arrays' do
-        expect(decorator).not_to be_match(%w[potato turnip])
+        expect(decorator.match?(%w[potato turnip])).not_to be(true)
       end
     end
   end

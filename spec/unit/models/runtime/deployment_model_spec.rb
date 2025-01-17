@@ -59,6 +59,18 @@ module VCAP::CloudController
         expect(deployment.deploying?).to be(true)
       end
 
+      it 'returns true if the deployment is PAUSED' do
+        deployment.state = DeploymentModel::PAUSED_STATE
+
+        expect(deployment.deploying?).to be(true)
+      end
+
+      it 'returns true if the deployment is PREPAUSED' do
+        deployment.state = DeploymentModel::PREPAUSED_STATE
+
+        expect(deployment.deploying?).to be(true)
+      end
+
       it 'returns false if the deployment has been deployed' do
         deployment.state = 'DEPLOYED'
 
@@ -85,6 +97,18 @@ module VCAP::CloudController
         expect(deployment.cancelable?).to be(true)
       end
 
+      it 'returns true if the deployment is PAUSED' do
+        deployment.state = DeploymentModel::PAUSED_STATE
+
+        expect(deployment.cancelable?).to be(true)
+      end
+
+      it 'returns true if the deployment is PREPAUSED' do
+        deployment.state = DeploymentModel::PREPAUSED_STATE
+
+        expect(deployment.cancelable?).to be(true)
+      end
+
       it 'returns false if the deployment is DEPLOYED' do
         deployment.state = DeploymentModel::DEPLOYED_STATE
 
@@ -101,6 +125,114 @@ module VCAP::CloudController
         deployment.state = DeploymentModel::CANCELED_STATE
 
         expect(deployment.cancelable?).to be(false)
+      end
+    end
+
+    describe '#continuable?' do
+      it 'returns true if the deployment is PAUSED' do
+        deployment.state = DeploymentModel::PAUSED_STATE
+
+        expect(deployment.continuable?).to be(true)
+      end
+
+      it 'returns false if the deployment is PREPAUSED' do
+        deployment.state = DeploymentModel::PREPAUSED_STATE
+
+        expect(deployment.continuable?).to be(false)
+      end
+
+      it 'returns false if the deployment is DEPLOYING state' do
+        deployment.state = DeploymentModel::DEPLOYING_STATE
+
+        expect(deployment.continuable?).to be(false)
+      end
+
+      it 'returns false if the deployment is DEPLOYED state' do
+        deployment.state = DeploymentModel::DEPLOYED_STATE
+
+        expect(deployment.continuable?).to be(false)
+      end
+
+      it 'returns true if the deployment is CANCELING' do
+        deployment.state = DeploymentModel::CANCELING_STATE
+
+        expect(deployment.continuable?).to be(false)
+      end
+
+      it 'returns false if the deployment is CANCELED' do
+        deployment.state = DeploymentModel::CANCELED_STATE
+
+        expect(deployment.continuable?).to be(false)
+      end
+    end
+
+    describe 'PROGRESSING_STATES' do
+      it 'contains progressing forward states' do
+        expect(DeploymentModel::PROGRESSING_STATES).to include(
+          DeploymentModel::DEPLOYING_STATE,
+          DeploymentModel::PAUSED_STATE,
+          DeploymentModel::PREPAUSED_STATE
+        )
+      end
+    end
+
+    describe 'ACTIVE_STATES' do
+      it 'contains active states' do
+        expect(DeploymentModel::ACTIVE_STATES).to include(
+          DeploymentModel::DEPLOYING_STATE,
+          DeploymentModel::PAUSED_STATE,
+          DeploymentModel::PREPAUSED_STATE,
+          DeploymentModel::CANCELING_STATE
+        )
+      end
+    end
+
+    describe '#status_updated_at' do
+      let(:deployment) do
+        DeploymentModel.make(
+          app: app,
+          droplet: droplet,
+          deploying_web_process: deploying_web_process,
+          status_reason: DeploymentModel::DEPLOYING_STATUS_REASON,
+          status_value: DeploymentModel::ACTIVE_STATUS_VALUE
+        )
+      end
+
+      # Can't use Timecop with created_at since its set by the DB
+      let(:creation_time) { deployment.created_at }
+      let(:update_time) { deployment.created_at + 24.hours }
+
+      before do
+        Timecop.freeze(creation_time)
+      end
+
+      after do
+        Timecop.return
+      end
+
+      it 'is defaulted with the created_at time' do
+        expect(deployment.status_updated_at).to eq(deployment.created_at)
+      end
+
+      it 'updates when status_reason has changed' do
+        deployment.status_reason = DeploymentModel::CANCELING_STATUS_REASON
+        Timecop.freeze(update_time)
+        deployment.save
+        expect(deployment.status_updated_at).to eq update_time
+      end
+
+      it 'updates when status_value has changed' do
+        deployment.status_value = DeploymentModel::FINALIZED_STATUS_VALUE
+        Timecop.freeze(update_time)
+        deployment.save
+        expect(deployment.status_updated_at).to eq update_time
+      end
+
+      it 'doesnt update when status_value or status_reason is unchanged' do
+        deployment.strategy = 'faux_strategy'
+        Timecop.freeze(update_time)
+        deployment.save
+        expect(deployment.status_updated_at).to eq creation_time
       end
     end
   end

@@ -19,23 +19,7 @@ module VCAP::CloudController
           expect { package.refresh }.to raise_error Sequel::Error, 'Record not found'
         end
 
-        context 'when using a package registry' do
-          before do
-            TestConfig.override(packages: { image_registry: { base_path: 'hub.example.com/user' } })
-          end
-
-          context 'when the package type is docker' do
-            let!(:package) { PackageModel.make(type: PackageModel::DOCKER_TYPE) }
-
-            it 'does not schedule a deletion job since there was no source code uploaded' do
-              expect do
-                package_delete.delete(package)
-              end.not_to(change(Delayed::Job, :count))
-            end
-          end
-        end
-
-        context 'when not using a package registry' do
+        context 'when the package is not of type docker' do
           it 'schedules a job to the delete the blobstore item' do
             expect do
               package_delete.delete(package)
@@ -47,6 +31,15 @@ module VCAP::CloudController
             expect(job.handler).to include('package_blobstore')
             expect(job.queue).to eq(Jobs::Queues.generic)
             expect(job.guid).not_to be_nil
+          end
+        end
+
+        context 'when the package is of type docker' do
+          it 'does not schedule a delayed job' do
+            package.type = PackageModel::DOCKER_TYPE
+            expect do
+              package_delete.delete(package)
+            end.not_to change(Delayed::Job, :count)
           end
         end
 
@@ -64,7 +57,7 @@ module VCAP::CloudController
         end
 
         it 'deletes associated labels' do
-          label = PackageLabelModel.make(resource_guid: package.guid)
+          label = PackageLabelModel.make(resource_guid: package.guid, key_name: 'test', value: 'bommel')
           expect do
             package_delete.delete([package])
           end.to change(PackageLabelModel, :count).by(-1)
@@ -73,7 +66,7 @@ module VCAP::CloudController
         end
 
         it 'deletes associated annotations' do
-          annotation = PackageAnnotationModel.make(resource_guid: package.guid)
+          annotation = PackageAnnotationModel.make(resource_guid: package.guid, key_name: 'test', value: 'bommel')
           expect do
             package_delete.delete([package])
           end.to change(PackageAnnotationModel, :count).by(-1)

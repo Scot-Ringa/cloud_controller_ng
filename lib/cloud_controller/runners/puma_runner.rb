@@ -1,21 +1,28 @@
 require 'puma'
 require 'puma/configuration'
 require 'puma/events'
+require 'cloud_controller/logs/steno_io'
 
 module VCAP::CloudController
   class PumaRunner
     def initialize(config, app, logger, periodic_updater, request_logs)
       @logger = logger
 
+      ENV['WEB_CONCURRENCY'] = 'auto' if config.get(:puma, :automatic_worker_count)
       puma_config = Puma::Configuration.new do |conf|
         if config.get(:nginx, :use_nginx)
-          conf.bind "unix://#{config.get(:nginx, :instance_socket)}"
+          if config.get(:nginx, :instance_socket).nil? || config.get(:nginx, :instance_socket).empty?
+            conf.bind 'tcp://0.0.0.0:3000'
+          else
+            conf.bind "unix://#{config.get(:nginx, :instance_socket)}"
+          end
         else
           conf.bind "tcp://0.0.0.0:#{config.get(:external_port)}"
         end
 
-        conf.workers(config.get(:puma, :workers) || 1)
-        conf.threads(0, config.get(:puma, :max_threads) || 1)
+        conf.workers(config.get(:puma, :workers) || 1) unless config.get(:puma, :automatic_worker_count)
+        num_threads = config.get(:puma, :max_threads) || 1
+        conf.threads(num_threads, num_threads)
 
         # In theory there shouldn't be any open connections when shutting down Puma as they have either been gracefully
         # drained or forcefully terminated (after cc.nginx_drain_timeout) by Nginx. Puma has some built-in (i.e. not
@@ -30,15 +37,23 @@ module VCAP::CloudController
         conf.before_fork do
           Sequel::Model.db.disconnect
         end
+        conf.on_worker_boot do
+          ENV['PROCESS_TYPE'] = 'puma_worker'
+          prometheus_updater.update_gauge_metric(:cc_db_connection_pool_timeouts_total, 0, labels: { process_type: 'puma_worker' })
+        end
         conf.on_worker_shutdown do
           request_logs.log_incomplete_requests if request_logs
         end
       end
 
-      log_writer = Puma::LogWriter.stdio
+      log_writer = Puma::LogWriter.new(StenoIO.new(logger, :info), StenoIO.new(logger, :error))
+
+      # replace PidFormatter as we already have the pid in the Steno log record
+      puma_config.options[:log_formatter] = Puma::LogWriter::DefaultFormatter.new
 
       events = Puma::Events.new
       events.on_booted do
+        prometheus_updater.update_gauge_metric(:cc_db_connection_pool_timeouts_total, 0, labels: { process_type: 'main' })
         Thread.new do
           EM.run { periodic_updater.setup_updates }
         end
@@ -55,6 +70,12 @@ module VCAP::CloudController
     rescue StandardError => e
       @logger.error "Encountered error: #{e}\n#{e.backtrace&.join("\n")}"
       raise e
+    end
+
+    private
+
+    def prometheus_updater
+      CloudController::DependencyLocator.instance.prometheus_updater
     end
   end
 end

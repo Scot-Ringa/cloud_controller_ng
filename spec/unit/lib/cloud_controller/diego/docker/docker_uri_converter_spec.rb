@@ -1,5 +1,6 @@
 require 'spec_helper'
 require 'cloud_controller/diego/docker/docker_uri_converter'
+require 'utils/uri_utils'
 
 module VCAP::CloudController
   RSpec.describe DockerURIConverter do
@@ -35,6 +36,14 @@ module VCAP::CloudController
 
         it 'builds the correct rootFS path' do
           expect(converter.convert(image_url)).to eq('docker:///user/image#tag')
+        end
+      end
+
+      context('and a user/image@sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08') do
+        let(:image_url) { 'user/image@sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08' }
+
+        it 'builds the correct rootFS path' do
+          expect(converter.convert(image_url)).to eq('docker:///user/image@sha256#9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08')
         end
       end
     end
@@ -129,7 +138,7 @@ module VCAP::CloudController
       it('errors') do
         expect do
           converter.convert image_url
-        end.to raise_error(DockerURIConverter::InvalidDockerURI, 'Docker URI [https://docker.io/repo] should not contain scheme')
+        end.to raise_error(UriUtils::InvalidDockerURI, 'Docker URI [https://docker.io/repo] should not contain scheme')
       end
     end
   end

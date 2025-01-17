@@ -3,9 +3,9 @@ require 'request_spec_shared_examples'
 
 RSpec.describe 'V3 service instances' do
   let(:user) { VCAP::CloudController::User.make }
-  let(:org) { VCAP::CloudController::Organization.make }
+  let(:org) { VCAP::CloudController::Organization.make(created_at: Time.now.utc - 1.second) }
   let!(:org_annotation) { VCAP::CloudController::OrganizationAnnotationModel.make(key_prefix: 'pre.fix', key_name: 'foo', value: 'bar', resource_guid: org.guid) }
-  let(:space) { VCAP::CloudController::Space.make(organization: org) }
+  let(:space) { VCAP::CloudController::Space.make(organization: org, created_at: Time.now.utc - 1.second) }
   let!(:space_annotation) { VCAP::CloudController::SpaceAnnotationModel.make(key_prefix: 'pre.fix', key_name: 'baz', value: 'wow', space: space) }
   let(:another_space) { VCAP::CloudController::Space.make }
 
@@ -16,7 +16,7 @@ RSpec.describe 'V3 service instances' do
       let(:guid) { 'no-such-guid' }
 
       let(:expected_codes_and_responses) do
-        Hash.new(code: 404)
+        Hash.new({ code: 404 }.freeze)
       end
 
       it_behaves_like 'permissions for single object endpoint', ALL_PERMISSIONS
@@ -189,8 +189,30 @@ RSpec.describe 'V3 service instances' do
     end
 
     context 'given a mixture of managed, user-provided and shared service instances' do
-      let!(:msi_1) { VCAP::CloudController::ManagedServiceInstance.make(space:) }
-      let!(:msi_2) { VCAP::CloudController::ManagedServiceInstance.make(space: another_space) }
+      let!(:msi_1) do
+        VCAP::CloudController::ManagedServiceInstance.make(
+          service_plan: VCAP::CloudController::ServicePlan.make(
+            service: VCAP::CloudController::Service.make(
+              service_broker: VCAP::CloudController::ServiceBroker.make(created_at: Time.now.utc - 2.seconds),
+              created_at: Time.now.utc - 2.seconds
+            ),
+            created_at: Time.now.utc - 2.seconds
+          ),
+          space: space
+        )
+      end
+      let!(:msi_2) do
+        VCAP::CloudController::ManagedServiceInstance.make(
+          service_plan: VCAP::CloudController::ServicePlan.make(
+            service: VCAP::CloudController::Service.make(
+              service_broker: VCAP::CloudController::ServiceBroker.make(created_at: Time.now.utc - 1.second),
+              created_at: Time.now.utc - 1.second
+            ),
+            created_at: Time.now.utc - 1.second
+          ),
+          space: another_space
+        )
+      end
       let!(:upsi_1) { VCAP::CloudController::UserProvidedServiceInstance.make(space:) }
       let!(:upsi_2) { VCAP::CloudController::UserProvidedServiceInstance.make(space: another_space) }
       let!(:ssi) { VCAP::CloudController::ManagedServiceInstance.make(space: another_space) }
@@ -226,8 +248,8 @@ RSpec.describe 'V3 service instances' do
 
         let(:expected_codes_and_responses) do
           h = Hash.new(
-            code: 200,
-            response_objects: []
+            { code: 200,
+              response_objects: [] }.freeze
           )
 
           h['admin'] = all_instances
@@ -505,8 +527,8 @@ RSpec.describe 'V3 service instances' do
 
       let(:expected_codes_and_responses) do
         h = Hash.new(
-          code: 200,
-          response_object: credentials
+          { code: 200,
+            response_object: credentials }.freeze
         )
 
         h['global_auditor'] = h['space_supporter'] = h['space_manager'] = h['space_auditor'] = h['org_manager'] = { code: 403 }
@@ -572,8 +594,8 @@ RSpec.describe 'V3 service instances' do
 
       let(:expected_codes_and_responses) do
         h = Hash.new(
-          code: 200,
-          response_object: parameters
+          { code: 200,
+            response_object: parameters }.freeze
         )
 
         h['org_auditor'] = { code: 404 }
@@ -681,8 +703,8 @@ RSpec.describe 'V3 service instances' do
 
         let(:expected_codes_and_responses) do
           h = Hash.new(
-            code: 200,
-            response_object: parameters
+            { code: 200,
+              response_object: parameters }.freeze
           )
 
           h['space_supporter'] = h['space_developer'] = h['space_manager'] = h['space_auditor'] = h['org_manager'] = { code: 403 }
@@ -1174,6 +1196,29 @@ RSpec.describe 'V3 service instances' do
         end
       end
 
+      describe 'when db is unavailable' do
+        before do
+          allow_any_instance_of(VCAP::CloudController::Jobs::Enqueuer).to receive(:enqueue_pollable).and_raise(Sequel::DatabaseDisconnectError)
+        end
+
+        it 'raises the appropriate error' do
+          api_call.call(admin_headers)
+
+          expect(last_response).to have_status_code(503)
+          expect(parsed_response['errors']).to include(include({
+                                                                 'detail' => include('Database connection failure'),
+                                                                 'title' => 'CF-ServiceUnavailable',
+                                                                 'code' => 10_015
+                                                               }))
+        end
+
+        it 'does not create a service instance in the database' do
+          api_call.call(admin_headers)
+
+          expect(instance).to be_nil
+        end
+      end
+
       describe 'service plan checks' do
         context 'does not exist' do
           let(:service_plan_guid) { 'does-not-exist' }
@@ -1659,17 +1704,14 @@ RSpec.describe 'V3 service instances' do
       describe 'updates that do not require broker communication' do
         let!(:service_instance) do
           si = VCAP::CloudController::ManagedServiceInstance.make(
+            guid: 'bommel',
             tags: %w[foo bar],
             space: space
           )
-          si.annotation_ids = [
-            VCAP::CloudController::ServiceInstanceAnnotationModel.make(key_prefix: 'pre.fix', key_name: 'to_delete', value: 'value').id,
-            VCAP::CloudController::ServiceInstanceAnnotationModel.make(key_prefix: 'pre.fix', key_name: 'fox', value: 'bushy').id
-          ]
-          si.label_ids = [
-            VCAP::CloudController::ServiceInstanceLabelModel.make(key_prefix: 'pre.fix', key_name: 'to_delete', value: 'value'),
-            VCAP::CloudController::ServiceInstanceLabelModel.make(key_prefix: 'pre.fix', key_name: 'tail', value: 'fluffy')
-          ]
+          VCAP::CloudController::ServiceInstanceAnnotationModel.make(service_instance: si, key_prefix: 'pre.fix', key_name: 'to_delete', value: 'value')
+          VCAP::CloudController::ServiceInstanceAnnotationModel.make(service_instance: si, key_prefix: 'pre.fix', key_name: 'fox', value: 'bushy')
+          VCAP::CloudController::ServiceInstanceLabelModel.make(service_instance: si, key_prefix: 'pre.fix', key_name: 'to_delete', value: 'value')
+          VCAP::CloudController::ServiceInstanceLabelModel.make(service_instance: si, key_prefix: 'pre.fix', key_name: 'tail', value: 'fluffy')
           si
         end
 
@@ -1757,19 +1799,16 @@ RSpec.describe 'V3 service instances' do
         let(:original_maintenance_info) { { version: '1.1.0' } }
         let!(:service_instance) do
           si = VCAP::CloudController::ManagedServiceInstance.make(
+            guid: 'bommel',
             tags: %w[foo bar],
             space: space,
             service_plan: original_service_plan,
             maintenance_info: original_maintenance_info
           )
-          si.annotation_ids = [
-            VCAP::CloudController::ServiceInstanceAnnotationModel.make(key_prefix: 'pre.fix', key_name: 'to_delete', value: 'value').id,
-            VCAP::CloudController::ServiceInstanceAnnotationModel.make(key_prefix: 'pre.fix', key_name: 'fox', value: 'bushy').id
-          ]
-          si.label_ids = [
-            VCAP::CloudController::ServiceInstanceLabelModel.make(key_prefix: 'pre.fix', key_name: 'to_delete', value: 'value'),
-            VCAP::CloudController::ServiceInstanceLabelModel.make(key_prefix: 'pre.fix', key_name: 'tail', value: 'fluffy')
-          ]
+          VCAP::CloudController::ServiceInstanceAnnotationModel.make(service_instance: si, key_prefix: 'pre.fix', key_name: 'to_delete', value: 'value')
+          VCAP::CloudController::ServiceInstanceAnnotationModel.make(service_instance: si, key_prefix: 'pre.fix', key_name: 'fox', value: 'bushy')
+          VCAP::CloudController::ServiceInstanceLabelModel.make(service_instance: si, key_prefix: 'pre.fix', key_name: 'to_delete', value: 'value')
+          VCAP::CloudController::ServiceInstanceLabelModel.make(service_instance: si, key_prefix: 'pre.fix', key_name: 'tail', value: 'fluffy')
           si
         end
         let(:guid) { service_instance.guid }
@@ -2566,6 +2605,7 @@ RSpec.describe 'V3 service instances' do
     context 'user-provided service instance' do
       let!(:service_instance) do
         si = VCAP::CloudController::UserProvidedServiceInstance.make(
+          guid: 'bommel',
           space: space,
           name: 'foo',
           credentials: {
@@ -2576,14 +2616,10 @@ RSpec.describe 'V3 service instances' do
           route_service_url: 'https://bar.com',
           tags: %w[accounting mongodb]
         )
-        si.annotation_ids = [
-          VCAP::CloudController::ServiceInstanceAnnotationModel.make(key_prefix: 'pre.fix', key_name: 'to_delete', value: 'value').id,
-          VCAP::CloudController::ServiceInstanceAnnotationModel.make(key_prefix: 'pre.fix', key_name: 'fox', value: 'bushy').id
-        ]
-        si.label_ids = [
-          VCAP::CloudController::ServiceInstanceLabelModel.make(key_prefix: 'pre.fix', key_name: 'to_delete', value: 'value'),
-          VCAP::CloudController::ServiceInstanceLabelModel.make(key_prefix: 'pre.fix', key_name: 'tail', value: 'fluffy')
-        ]
+        VCAP::CloudController::ServiceInstanceAnnotationModel.make(service_instance: si, key_prefix: 'pre.fix', key_name: 'to_delete', value: 'value')
+        VCAP::CloudController::ServiceInstanceAnnotationModel.make(service_instance: si, key_prefix: 'pre.fix', key_name: 'fox', value: 'bushy')
+        VCAP::CloudController::ServiceInstanceLabelModel.make(service_instance: si, key_prefix: 'pre.fix', key_name: 'to_delete', value: 'value')
+        VCAP::CloudController::ServiceInstanceLabelModel.make(service_instance: si, key_prefix: 'pre.fix', key_name: 'tail', value: 'fluffy')
         si
       end
 
@@ -4022,10 +4058,10 @@ RSpec.describe 'V3 service instances' do
       end
     end
 
-    it 'respond with 404 when the user cannot read the originating space' do
+    it 'respond with 200 when the user cannot read the originating space, but has access to the service instance' do
       set_current_user_as_role(role: 'space_developer', org: other_space.organization, space: other_space, user: user)
       get "/v3/service_instances/#{instance.guid}/relationships/shared_spaces", nil, user_header
-      expect(last_response.status).to eq(404)
+      expect(last_response.status).to eq(200)
     end
 
     describe 'fields' do
@@ -4057,6 +4093,29 @@ RSpec.describe 'V3 service instances' do
         }
 
         expect({ included: parsed_response['included'] }).to match_json_response({ included: })
+      end
+
+      context 'when the user can read from the originating space only' do
+        before do
+          set_current_user_as_role(role: 'space_developer', org: space.organization, space: space, user: user)
+        end
+
+        it 'does not include space and organization names of the shared space' do
+          get "/v3/service_instances/#{instance.guid}/relationships/shared_spaces?fields[space]=name,guid,relationships.organization&fields[space.organization]=name,guid", nil,
+              user_header
+          expect(last_response).to have_status_code(200)
+
+          included = {
+            spaces: [
+              { guid: other_space.guid, relationships: { organization: { data: { guid: other_space.organization.guid } } } }
+            ],
+            organizations: [
+              { guid: other_space.organization.guid }
+            ]
+          }
+
+          expect({ included: parsed_response['included'] }).to match_json_response({ included: })
+        end
       end
 
       it 'fails for invalid resources' do
@@ -4152,14 +4211,14 @@ RSpec.describe 'V3 service instances' do
       end
     end
 
-    context 'when the user cannot read from the originating space' do
-      it 'responds with 404 Not Found' do
+    context 'when the user has access to the service through a shared space' do
+      it 'responds with 200 ok' do
         user = VCAP::CloudController::User.make
         set_current_user_as_role(role: 'space_developer', org: space_2.organization, space: space_2, user: user)
 
         api_call.call(headers_for(user))
 
-        expect(last_response).to have_status_code(404)
+        expect(last_response).to have_status_code(200)
       end
     end
   end
@@ -4178,7 +4237,7 @@ RSpec.describe 'V3 service instances' do
       let(:guid) { 'no-such-guid' }
 
       let(:expected_codes_and_responses) do
-        h = Hash.new(code: 404)
+        h = Hash.new({ code: 404 }.freeze)
         h['unauthenticated'] = { code: 401 }
         h
       end
@@ -4191,7 +4250,7 @@ RSpec.describe 'V3 service instances' do
       let(:guid) { instance.guid }
 
       let(:expected_codes_and_responses) do
-        h = Hash.new(code: 404)
+        h = Hash.new({ code: 404 }.freeze)
         %w[admin space_developer].each { |r| h[r] = READ_AND_WRITE }
         %w[admin_read_only global_auditor org_manager space_manager space_auditor space_supporter].each { |r| h[r] = READ_ONLY }
         %w[org_billing_manager org_auditor no_role service_permissions_reader].each { |r| h[r] = NO_PERMISSIONS }
@@ -4240,7 +4299,7 @@ RSpec.describe 'V3 service instances' do
       let(:guid) { instance.guid }
 
       let(:expected_codes_and_responses) do
-        h = Hash.new(code: 404)
+        h = Hash.new({ code: 404 }.freeze)
         h['admin'] = READ_AND_WRITE
         %w[admin_read_only global_auditor].each { |r| h[r] = READ_ONLY }
         %w[org_billing_manager org_auditor org_manager space_manager space_auditor space_developer space_supporter no_role service_permissions_reader].each do |r|

@@ -16,11 +16,14 @@ module VCAP::CloudController
             revision_dataset = RevisionModel.where(app_guid:)
             next if revision_dataset.count <= max_retained_revisions_per_app
 
-            revisions_to_keep = revision_dataset.order(Sequel.desc(:created_at)).
+            revisions_to_keep = revision_dataset.order(Sequel.desc(:created_at), Sequel.desc(:id)).
                                 limit(max_retained_revisions_per_app).
                                 select(:id)
-            delete_count = RevisionDelete.delete(revision_dataset.exclude(id: revisions_to_keep))
-            logger.info("Cleaned up #{delete_count.length} revision rows for app #{app_guid}")
+
+            revisions_to_delete = revision_dataset.exclude(id: revisions_to_keep)
+
+            delete_count = RevisionDelete.delete(revisions_to_delete)
+            logger.info("Cleaned up #{delete_count} revision rows for app #{app_guid}")
           end
         end
 

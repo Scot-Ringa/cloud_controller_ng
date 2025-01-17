@@ -17,7 +17,7 @@ require 'prometheus/client/data_stores/direct_file_store'
 
 module VCAP::CloudController
   class Runner
-    attr_reader :config, :config_file, :insert_seed_data, :secrets_file
+    attr_reader :config, :config_file, :secrets_file
 
     def initialize(argv)
       @argv = argv
@@ -29,11 +29,16 @@ module VCAP::CloudController
       secrets_hash = parse_secrets
       parse_config(secrets_hash)
 
+      # DB connection metrics have a label to determine whether the process accessing the connection is the
+      # main or a worker process. We need to set this env variable before `setup_db` otherwise the main process
+      # will show up twice in the metrics as main and worker. Thin metrics will be labeled with main as well.
+      ENV['PROCESS_TYPE'] = 'main'
+
       setup_cloud_controller
 
       request_logs = VCAP::CloudController::Logs::RequestLogs.new(Steno.logger('cc.api'))
 
-      request_metrics = VCAP::CloudController::Metrics::RequestMetrics.new(CloudController::DependencyLocator.instance.statsd_client,
+      request_metrics = VCAP::CloudController::Metrics::RequestMetrics.new(CloudController::DependencyLocator.instance.statsd_updater,
                                                                            CloudController::DependencyLocator.instance.prometheus_updater)
       builder = RackAppBuilder.new
       app     = builder.build(@config, request_metrics, request_logs)
@@ -59,10 +64,6 @@ module VCAP::CloudController
           @secrets_file = opt
         end
       end
-    end
-
-    def deprecation_warning(message)
-      Rails.logger.warn message
     end
 
     def parse_options!
@@ -153,7 +154,14 @@ module VCAP::CloudController
 
     def setup_db
       db_logger = Steno.logger('cc.db')
-      DB.load_models(@config.get(:db), db_logger)
+      db_config = @config.get(:db)
+
+      if @config.get(:webserver) == 'puma'
+        max_db_connections_per_process = @config.get(:puma, :max_db_connections_per_process)
+        db_config.merge!(max_connections: max_db_connections_per_process) unless max_db_connections_per_process.nil?
+      end
+
+      DB.load_models(db_config, db_logger)
     end
 
     def setup_blobstore

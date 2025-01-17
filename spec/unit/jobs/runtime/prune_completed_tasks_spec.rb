@@ -37,6 +37,29 @@ module VCAP::CloudController
             end
           end
 
+          it 'deletes tasks with labels' do
+            labeled_task = TaskModel.make(state: TaskModel::FAILED_STATE)
+
+            TaskLabelModel.make(key_name: 'cool', value: 'stuff', task: labeled_task)
+
+            Timecop.travel(time_after_expiration) do
+              expect(labeled_task).to exist
+              job.perform
+              expect(labeled_task).not_to exist
+            end
+          end
+
+          it 'deletes tasks with annotations' do
+            annotated_task = TaskModel.make(state: TaskModel::FAILED_STATE)
+            TaskAnnotationModel.make(key_name: 'cool', value: 'stuff', task: annotated_task)
+
+            Timecop.travel(time_after_expiration) do
+              expect(annotated_task).to exist
+              job.perform
+              expect(annotated_task).not_to exist
+            end
+          end
+
           it 'does not delete pending or running tasks' do
             running_task = TaskModel.make(state: TaskModel::RUNNING_STATE)
             pending_task = TaskModel.make(state: TaskModel::PENDING_STATE)
@@ -58,6 +81,26 @@ module VCAP::CloudController
 
               Timecop.travel(time_after_expiration) do
                 expect(logger).to receive(:info).with('Cleaned up 3 TaskModel rows')
+                job.perform
+              end
+            end
+
+            it 'logs the number of deleted labels' do
+              labeled_task = TaskModel.make(state: TaskModel::FAILED_STATE)
+              TaskLabelModel.make(key_name: 'cool', value: 'stuff', task: labeled_task)
+
+              Timecop.travel(time_after_expiration) do
+                expect(logger).to receive(:info).with('Cleaned up 1 TaskLabelModel rows')
+                job.perform
+              end
+            end
+
+            it 'logs the number of deleted annotations' do
+              annotated_task = TaskModel.make(state: TaskModel::FAILED_STATE)
+              TaskAnnotationModel.make(key_name: 'cool', value: 'stuff', task: annotated_task)
+
+              Timecop.travel(time_after_expiration) do
+                expect(logger).to receive(:info).with('Cleaned up 1 TaskAnnotationModel rows')
                 job.perform
               end
             end

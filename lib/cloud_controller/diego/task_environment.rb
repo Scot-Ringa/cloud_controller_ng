@@ -23,7 +23,7 @@ module VCAP::CloudController
 
         task_env = task_env.merge('VCAP_PLATFORM_OPTIONS' => credhub_url) if credhub_url.present? && cred_interpolation_enabled?
 
-        task_env = task_env.merge('LANG' => DEFAULT_LANG) if app.lifecycle_type == BuildpackLifecycleDataModel::LIFECYCLE_TYPE
+        task_env = task_env.merge('LANG' => DEFAULT_LANG) if [BuildpackLifecycleDataModel::LIFECYCLE_TYPE, CNBLifecycleDataModel::LIFECYCLE_TYPE].include?(app.lifecycle_type)
         task_env = task_env.merge('DATABASE_URL' => app.database_uri) if app.database_uri
 
         task_env

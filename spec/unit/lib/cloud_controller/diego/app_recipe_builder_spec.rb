@@ -13,6 +13,48 @@ module VCAP::CloudController
 
       let(:ssh_key) { SSHKey.new }
 
+      shared_examples_for 'creating a desired lrp' do
+        it 'creates a desired lrp' do
+          lrp = builder.build_app_lrp
+          expect(lrp.action).to eq(expected_action)
+          expect(lrp.annotation).to eq(Time.at(2).to_f.to_s)
+          expect(lrp.cached_dependencies).to eq(expected_cached_dependencies)
+          expect(lrp.disk_mb).to eq(256)
+          expect(lrp.domain).to eq(APP_LRP_DOMAIN)
+          expect(lrp.egress_rules).to contain_exactly(rule_dns_everywhere, rule_http_everywhere, rule_staging_specific)
+          expect(lrp.legacy_download_user).to eq('lrp-action-user')
+          expect(lrp.instances).to eq(21)
+          expect(lrp.log_guid).to eq(process.app.guid)
+          expect(lrp.log_source).to eq(LRP_LOG_SOURCE)
+          expect(lrp.max_pids).to eq(100)
+          expect(lrp.memory_mb).to eq(128)
+          expect(lrp.log_rate_limit.bytes_per_second).to eq(1024)
+          expect(lrp.metrics_guid).to eq(process.app.guid)
+
+          expect(lrp.metric_tags.keys.size).to eq(11)
+          expect(lrp.metric_tags['source_id'].static).to eq(process.app.guid)
+          expect(lrp.metric_tags['process_id'].static).to eq(process.guid)
+          expect(lrp.metric_tags['process_type'].static).to eq(process.type)
+          expect(lrp.metric_tags['process_instance_id'].dynamic).to eq(:INSTANCE_GUID)
+          expect(lrp.metric_tags['instance_id'].dynamic).to eq(:INDEX)
+          expect(lrp.metric_tags['organization_id'].static).to eq(org.guid)
+          expect(lrp.metric_tags['space_id'].static).to eq(space.guid)
+          expect(lrp.metric_tags['app_id'].static).to eq(app_model.guid)
+          expect(lrp.metric_tags['organization_name'].static).to eq(org.name)
+          expect(lrp.metric_tags['space_name'].static).to eq(space.name)
+          expect(lrp.metric_tags['app_name'].static).to eq(app_model.name)
+
+          expect(lrp.monitor).to eq(expected_monitor_action)
+          expect(lrp.network).to eq(expected_network)
+          expect(lrp.ports).to eq([4444, 5555])
+          expect(lrp.process_guid).to eq(ProcessGuid.from_process(process))
+          expect(lrp.start_timeout_ms).to eq(12 * 1000)
+          expect(lrp.trusted_system_certificates_path).to eq(RUNNING_TRUSTED_SYSTEM_CERT_PATH)
+          expect(lrp.PlacementTags).to eq(['placement-tag'])
+          expect(lrp.certificate_properties).to eq(expected_certificate_properties)
+        end
+      end
+
       before do
         TestConfig.override(credhub_api: nil)
       end
@@ -259,48 +301,14 @@ module VCAP::CloudController
             allow(VCAP::CloudController::Diego::Buildpack::DesiredLrpBuilder).to receive(:new).and_return(desired_lrp_builder)
           end
 
-          it 'creates a desired lrp' do
+          it_behaves_like 'creating a desired lrp'
+
+          it 'creates a desired lrp with buildpack specific properties' do
             lrp = builder.build_app_lrp
-            expect(lrp.action).to eq(expected_action)
-            expect(lrp.annotation).to eq(Time.at(2).to_f.to_s)
-            expect(lrp.cached_dependencies).to eq(expected_cached_dependencies)
-            expect(lrp.disk_mb).to eq(256)
-            expect(lrp.domain).to eq(APP_LRP_DOMAIN)
-            expect(lrp.egress_rules).to contain_exactly(rule_dns_everywhere, rule_http_everywhere, rule_staging_specific)
             expect(lrp.environment_variables).to contain_exactly(::Diego::Bbs::Models::EnvironmentVariable.new(name: 'foo', value: 'bar'))
-            expect(lrp.legacy_download_user).to eq('lrp-action-user')
-            expect(lrp.instances).to eq(21)
-            expect(lrp.log_guid).to eq(process.app.guid)
-            expect(lrp.log_source).to eq(LRP_LOG_SOURCE)
-            expect(lrp.max_pids).to eq(100)
-            expect(lrp.memory_mb).to eq(128)
-            expect(lrp.log_rate_limit.bytes_per_second).to eq(1024)
-            expect(lrp.metrics_guid).to eq(process.app.guid)
-
-            expect(lrp.metric_tags.keys.size).to eq(11)
-            expect(lrp.metric_tags['source_id'].static).to eq(process.app.guid)
-            expect(lrp.metric_tags['process_id'].static).to eq(process.guid)
-            expect(lrp.metric_tags['process_type'].static).to eq(process.type)
-            expect(lrp.metric_tags['process_instance_id'].dynamic).to eq(:INSTANCE_GUID)
-            expect(lrp.metric_tags['instance_id'].dynamic).to eq(:INDEX)
-            expect(lrp.metric_tags['organization_id'].static).to eq(org.guid)
-            expect(lrp.metric_tags['space_id'].static).to eq(space.guid)
-            expect(lrp.metric_tags['app_id'].static).to eq(app_model.guid)
-            expect(lrp.metric_tags['organization_name'].static).to eq(org.name)
-            expect(lrp.metric_tags['space_name'].static).to eq(space.name)
-            expect(lrp.metric_tags['app_name'].static).to eq(app_model.name)
-
-            expect(lrp.monitor).to eq(expected_monitor_action)
-            expect(lrp.network).to eq(expected_network)
-            expect(lrp.ports).to eq([4444, 5555])
-            expect(lrp.process_guid).to eq(ProcessGuid.from_process(process))
             expect(lrp.root_fs).to eq('buildpack_root_fs')
             expect(lrp.setup).to eq(expected_setup_action)
             expect(lrp.image_layers).to eq(expected_image_layers)
-            expect(lrp.start_timeout_ms).to eq(12 * 1000)
-            expect(lrp.trusted_system_certificates_path).to eq(RUNNING_TRUSTED_SYSTEM_CERT_PATH)
-            expect(lrp.PlacementTags).to eq(['placement-tag'])
-            expect(lrp.certificate_properties).to eq(expected_certificate_properties)
           end
 
           context 'when the space is not entitled to any isolation segments' do
@@ -890,11 +898,11 @@ module VCAP::CloudController
 
             it 'includes the lrp route' do
               lrp = builder.build_app_lrp
-              expect(lrp.routes.routes['diego-ssh']).to eq(MultiJson.dump({
-                                                                            container_port: 2222,
-                                                                            private_key: ssh_key.private_key,
-                                                                            host_fingerprint: ssh_key.fingerprint
-                                                                          }))
+              expect(lrp.routes.routes['diego-ssh']).to eq(Oj.dump({
+                                                                     container_port: 2222,
+                                                                     private_key: ssh_key.private_key,
+                                                                     host_fingerprint: ssh_key.fingerprint
+                                                                   }))
             end
           end
 
@@ -904,6 +912,97 @@ module VCAP::CloudController
               expect(lrp.action).to eq(expected_action)
               lrp2 = builder.build_app_lrp
               expect(lrp2.action).to eq(expected_action)
+            end
+          end
+        end
+
+        context 'when the lifecycle_type is "cnb"' do
+          let(:lifecycle_type) { :cnb }
+          let(:droplet) do
+            DropletModel.make(lifecycle_type,
+                              package: package,
+                              state: DropletModel::STAGED_STATE,
+                              execution_metadata: execution_metadata,
+                              droplet_hash: 'droplet-hash')
+          end
+          let(:config) do
+            Config.new({
+                         diego: {
+                           use_privileged_containers_for_running: false,
+                           lifecycle_bundles: {
+                             'potato-stack' => 'some-uri'
+                           },
+                           pid_limit: 100
+                         }
+                       })
+          end
+          let(:expected_cached_dependencies) do
+            [
+              ::Diego::Bbs::Models::CachedDependency.new(
+                from: 'lifecycle-from',
+                to: 'lifecycle-to',
+                cache_key: 'lifecycle-cache-key'
+              )
+            ]
+          end
+          let(:expected_setup_action) { ::Diego::Bbs::Models::Action.new }
+          let(:expected_image_layers) { [::Diego::Bbs::Models::ImageLayer.new] }
+          let(:env_vars) { [::Diego::Bbs::Models::EnvironmentVariable.new(name: 'foo', value: 'bar')] }
+
+          let(:desired_lrp_builder) do
+            instance_double(VCAP::CloudController::Diego::CNB::DesiredLrpBuilder,
+                            cached_dependencies: expected_cached_dependencies,
+                            root_fs: 'buildpack_root_fs',
+                            setup: expected_setup_action,
+                            global_environment_variables: env_vars,
+                            privileged?: false,
+                            ports: lrp_builder_ports,
+                            port_environment_variables: port_environment_variables,
+                            action_user: 'lrp-action-user',
+                            image_layers: expected_image_layers,
+                            start_command: command)
+          end
+
+          let(:ports) { '8080' }
+
+          before do
+            VCAP::CloudController::BuildpackLifecycleDataModel.make(
+              app: app_model,
+              buildpacks: nil,
+              stack: 'potato-stack'
+            )
+
+            allow(VCAP::CloudController::Diego::Buildpack::DesiredLrpBuilder).to receive(:new).and_return(desired_lrp_builder)
+          end
+
+          it_behaves_like 'creating a desired lrp'
+
+          it 'creates a desired lrp with cnb specific properties' do
+            lrp = builder.build_app_lrp
+            expect(lrp.environment_variables).to contain_exactly(::Diego::Bbs::Models::EnvironmentVariable.new(name: 'foo', value: 'bar'))
+            expect(lrp.root_fs).to eq('buildpack_root_fs')
+            expect(lrp.setup).to eq(expected_setup_action)
+            expect(lrp.image_layers).to eq(expected_image_layers)
+          end
+
+          describe 'ssh' do
+            before do
+              process.app.update(enable_ssh: true)
+            end
+
+            it 'includes the ssh port' do
+              lrp = builder.build_app_lrp
+              expect(desired_lrp_builder.ports).not_to include(2222)
+              expect(lrp.ports).to include(2222)
+            end
+
+            it 'includes the lrp route' do
+              lrp = builder.build_app_lrp
+              expect(lrp.routes.routes['diego-ssh']).to eq(Oj.dump({
+                                                                     container_port: 2222,
+                                                                     private_key: ssh_key.private_key,
+                                                                     host_fingerprint: ssh_key.fingerprint
+                                                                   }))
             end
           end
         end
@@ -955,47 +1054,13 @@ module VCAP::CloudController
             allow(VCAP::CloudController::Diego::Docker::DesiredLrpBuilder).to receive(:new).and_return(desired_lrp_builder)
           end
 
-          it 'creates a desired lrp' do
+          it_behaves_like 'creating a desired lrp'
+
+          it 'creates a desired lrp with docker specific properties' do
             lrp = builder.build_app_lrp
-
-            expect(lrp.action).to eq(expected_action)
-            expect(lrp.annotation).to eq(Time.at(2).to_f.to_s)
-            expect(lrp.cached_dependencies).to eq(expected_cached_dependencies)
-            expect(lrp.instances).to eq(21)
-            expect(lrp.disk_mb).to eq(256)
-            expect(lrp.domain).to eq(APP_LRP_DOMAIN)
-            expect(lrp.egress_rules).to contain_exactly(rule_dns_everywhere, rule_http_everywhere, rule_staging_specific)
             expect(lrp.environment_variables).to eq([])
-            expect(lrp.log_source).to eq(LRP_LOG_SOURCE)
-            expect(lrp.log_guid).to eq(process.app.guid)
-            expect(lrp.max_pids).to eq(100)
-            expect(lrp.memory_mb).to eq(128)
-            expect(lrp.log_rate_limit.bytes_per_second).to eq(1024)
-            expect(lrp.metrics_guid).to eq(process.app.guid)
-
-            expect(lrp.metric_tags.keys.size).to eq(11)
-            expect(lrp.metric_tags['source_id'].static).to eq(process.app.guid)
-            expect(lrp.metric_tags['process_id'].static).to eq(process.guid)
-            expect(lrp.metric_tags['process_type'].static).to eq(process.type)
-            expect(lrp.metric_tags['process_instance_id'].dynamic).to eq(:INSTANCE_GUID)
-            expect(lrp.metric_tags['instance_id'].dynamic).to eq(:INDEX)
-            expect(lrp.metric_tags['organization_id'].static).to eq(org.guid)
-            expect(lrp.metric_tags['space_id'].static).to eq(space.guid)
-            expect(lrp.metric_tags['app_id'].static).to eq(app_model.guid)
-            expect(lrp.metric_tags['organization_name'].static).to eq(org.name)
-            expect(lrp.metric_tags['space_name'].static).to eq(space.name)
-            expect(lrp.metric_tags['app_name'].static).to eq(app_model.name)
-
-            expect(lrp.monitor).to eq(expected_monitor_action)
-            expect(lrp.monitor).to eq(expected_monitor_action)
-            expect(lrp.network).to eq(expected_network)
-            expect(lrp.ports).to eq([4444, 5555])
+            expect(lrp.root_fs).to eq('docker_root_fs')
             expect(lrp.privileged).to be false
-            expect(lrp.process_guid).to eq(ProcessGuid.from_process(process))
-            expect(lrp.start_timeout_ms).to eq(12 * 1000)
-            expect(lrp.trusted_system_certificates_path).to eq(RUNNING_TRUSTED_SYSTEM_CERT_PATH)
-            expect(lrp.PlacementTags).to eq(['placement-tag'])
-            expect(lrp.certificate_properties).to eq(expected_certificate_properties)
             expect(lrp.image_username).to eq('dockeruser')
             expect(lrp.image_password).to eq('dockerpass')
           end
@@ -1005,14 +1070,14 @@ module VCAP::CloudController
             let(:metric_tag_key_prefix) { 'metric.tag.cloudfoundry.org' }
 
             before do
-              AppLabelModel.create(
+              AppLabelModel.make(
                 app: app_model,
                 key_prefix: metric_tag_key_prefix,
                 key_name: 'DatadogValue',
                 value: 'woof'
               )
 
-              AppLabelModel.create(
+              AppLabelModel.make(
                 app: app_model,
                 key_prefix: 'nonmetric.tag.cloudfoundry.org',
                 key_name: 'SomeotherValue',
@@ -1032,7 +1097,7 @@ module VCAP::CloudController
 
               context 'when app labels tags match existing custom metrics tags' do
                 before do
-                  AppLabelModel.create(
+                  AppLabelModel.make(
                     app: app_model,
                     key_prefix: metric_tag_key_prefix,
                     key_name: 'organization_name',
@@ -1047,28 +1112,28 @@ module VCAP::CloudController
 
               context 'when app labels contain forbidden key_names' do
                 before do
-                  AppLabelModel.create(
+                  AppLabelModel.make(
                     app: app_model,
                     key_prefix: metric_tag_key_prefix,
                     key_name: 'deployment',
                     value: 'kafka'
                   )
 
-                  AppLabelModel.create(
+                  AppLabelModel.make(
                     app: app_model,
                     key_prefix: metric_tag_key_prefix,
                     key_name: 'index',
                     value: '999'
                   )
 
-                  AppLabelModel.create(
+                  AppLabelModel.make(
                     app: app_model,
                     key_prefix: metric_tag_key_prefix,
                     key_name: 'ip',
                     value: '127.0.0.1'
                   )
 
-                  AppLabelModel.create(
+                  AppLabelModel.make(
                     app: app_model,
                     key_prefix: metric_tag_key_prefix,
                     key_name: 'job',
@@ -1097,9 +1162,12 @@ module VCAP::CloudController
             end
           end
 
-          context 'cpu weight' do
-            context 'when the memory limit is between the minimum and maximum' do
-              before { process.memory = (MIN_CPU_PROXY + MAX_CPU_PROXY) / 2 }
+          context 'cpu weight with default max memory of 8G' do
+            let(:min_cpu_proxy) { VCAP::CloudController::Config.config.get(:cpu_weight_min_memory) }
+            let(:max_cpu_proxy) { VCAP::CloudController::Config.config.get(:cpu_weight_max_memory) }
+
+            context 'when the memory limit is between the minimum and default maximum' do
+              before { process.memory = (min_cpu_proxy + max_cpu_proxy) / 2 }
 
               it 'sets the cpu_weight to 100* value/max' do
                 lrp = builder.build_app_lrp
@@ -1108,21 +1176,58 @@ module VCAP::CloudController
             end
 
             context 'when the memory limit is below the minimum' do
-              before { process.memory = MIN_CPU_PROXY - 1 }
+              before { process.memory = min_cpu_proxy - 1 }
 
               it 'sets the cpu_weight to 100*min/max' do
                 lrp             = builder.build_app_lrp
-                expected_weight = (100 * MIN_CPU_PROXY / MAX_CPU_PROXY).to_i
+                expected_weight = (100 * min_cpu_proxy / max_cpu_proxy).to_i
                 expect(lrp.cpu_weight).to eq(expected_weight)
               end
             end
 
-            context 'when the memory limit exceeds the maximum' do
-              before { process.memory = MAX_CPU_PROXY + 1 }
+            context 'when the memory limit exceeds the default maximum (8192)' do
+              before { process.memory = max_cpu_proxy + 1 }
 
               it 'sets the cpu_weight to 100' do
                 lrp = builder.build_app_lrp
                 expect(lrp.cpu_weight).to eq(100)
+              end
+            end
+          end
+
+          context 'cpu weight with max memory more than 8G' do
+            let(:min_cpu_proxy) { VCAP::CloudController::Config.config.get(:cpu_weight_min_memory) }
+            let(:max_cpu_proxy) { VCAP::CloudController::Config.config.get(:cpu_weight_max_memory) }
+
+            before do
+              TestConfig.override(cpu_weight_max_memory: 16_384)
+            end
+
+            context 'when the memory limit is between the default maximum (8G) and 16G of memory' do
+              before { process.memory = 15_000 }
+
+              it 'returns a percentage above 100' do
+                lrp = builder.build_app_lrp
+                expected_weight = (100 * process.memory) / BASE_WEIGHT
+                expect(lrp.cpu_weight).to eq(expected_weight)
+              end
+            end
+
+            context 'when memory limit is equal to 16G' do
+              before { process.memory = BASE_WEIGHT * 2 }
+
+              it 'sets the cpu_weight to 200' do
+                lrp = builder.build_app_lrp
+                expect(lrp.cpu_weight).to eq(200)
+              end
+            end
+
+            context 'when memory limit is equal or above 16G' do
+              before { process.memory = BASE_WEIGHT * 4 }
+
+              it 'sets the cpu_weight to 200' do
+                lrp = builder.build_app_lrp
+                expect(lrp.cpu_weight).to eq(200)
               end
             end
           end
@@ -1236,11 +1341,11 @@ module VCAP::CloudController
 
             it 'includes the lrp route' do
               lrp = builder.build_app_lrp
-              expect(lrp.routes.routes['diego-ssh']).to eq(MultiJson.dump({
-                                                                            container_port: 2222,
-                                                                            private_key: ssh_key.private_key,
-                                                                            host_fingerprint: ssh_key.fingerprint
-                                                                          }))
+              expect(lrp.routes.routes['diego-ssh']).to eq(Oj.dump({
+                                                                     container_port: 2222,
+                                                                     private_key: ssh_key.private_key,
+                                                                     host_fingerprint: ssh_key.fingerprint
+                                                                   }))
             end
           end
         end

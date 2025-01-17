@@ -47,7 +47,7 @@ RSpec.describe 'Sidecars' do
         }
       }
 
-      parsed_response = MultiJson.load(last_response.body)
+      parsed_response = Oj.load(last_response.body)
       expect(parsed_response).to be_a_response_like(expected_response)
     end
 
@@ -65,7 +65,7 @@ RSpec.describe 'Sidecars' do
             'user-id' => OpenSSL::Digest::SHA256.hexdigest(user.guid)
           }
         }
-        expect_any_instance_of(ActiveSupport::Logger).to receive(:info).with(JSON.generate(expected_json))
+        expect_any_instance_of(ActiveSupport::Logger).to receive(:info).with(Oj.dump(expected_json))
         post "/v3/apps/#{app_model.guid}/sidecars", sidecar_params.to_json, user_header
         expect(last_response.status).to eq(201), last_response.body
       end
@@ -140,7 +140,7 @@ RSpec.describe 'Sidecars' do
       end
 
       let(:expected_codes_and_responses) do
-        h = Hash.new(code: 403, errors: CF_NOT_AUTHORIZED)
+        h = Hash.new({ code: 403, errors: CF_NOT_AUTHORIZED }.freeze)
         %w[no_role org_auditor org_billing_manager].each { |r| h[r] = { code: 404 } }
         %w[admin space_developer].each { |r| h[r] = { code: 201 } }
         h
@@ -205,7 +205,7 @@ RSpec.describe 'Sidecars' do
       patch "/v3/sidecars/#{sidecar.guid}", sidecar_params.to_json, user_header
 
       expect(last_response.status).to eq(200)
-      parsed_response = MultiJson.load(last_response.body)
+      parsed_response = Oj.load(last_response.body)
       expect(parsed_response).to be_a_response_like(expected_response)
     end
 
@@ -236,7 +236,7 @@ RSpec.describe 'Sidecars' do
         patch "/v3/sidecars/#{sidecar.guid}", sidecar_params.to_json, user_header
 
         expect(last_response.status).to eq(200)
-        parsed_response = MultiJson.load(last_response.body)
+        parsed_response = Oj.load(last_response.body)
         expect(parsed_response).to be_a_response_like(expected_response)
       end
     end
@@ -339,7 +339,7 @@ RSpec.describe 'Sidecars' do
       end
 
       let(:expected_codes_and_responses) do
-        h = Hash.new(code: 403, errors: CF_NOT_AUTHORIZED)
+        h = Hash.new({ code: 403, errors: CF_NOT_AUTHORIZED }.freeze)
         %w[no_role org_auditor org_billing_manager].each { |r| h[r] = { code: 404 } }
         %w[admin space_developer].each { |r| h[r] = { code: 200 } }
         h
@@ -396,7 +396,7 @@ RSpec.describe 'Sidecars' do
         }
 
         expect(last_response.status).to eq(200), last_response.body
-        parsed_response = MultiJson.load(last_response.body)
+        parsed_response = Oj.load(last_response.body)
         expect(parsed_response).to be_a_response_like(expected_response)
       end
     end
@@ -407,7 +407,7 @@ RSpec.describe 'Sidecars' do
       let(:space) { app_model.space }
 
       let(:expected_codes_and_responses) do
-        h = Hash.new(code: 200, response_guid: sidecar.guid)
+        h = Hash.new({ code: 200, response_guid: sidecar.guid }.freeze)
         h['no_role'] = {
           code: 404
         }
@@ -536,7 +536,7 @@ RSpec.describe 'Sidecars' do
         }
 
         expect(last_response.status).to eq(200), last_response.body
-        parsed_response = MultiJson.load(last_response.body)
+        parsed_response = Oj.load(last_response.body)
         expect(parsed_response).to be_a_response_like(expected_response)
       end
 
@@ -578,7 +578,7 @@ RSpec.describe 'Sidecars' do
       let(:space) { app_model.space }
 
       let(:expected_codes_and_responses) do
-        h = Hash.new(code: 404)
+        h = Hash.new({ code: 404 }.freeze)
         h['admin'] = {
           code: 200
         }
@@ -708,7 +708,7 @@ RSpec.describe 'Sidecars' do
       let(:space) { app_model.space }
 
       let(:expected_codes_and_responses) do
-        h = Hash.new(code: 404)
+        h = Hash.new({ code: 404 }.freeze)
         h['admin'] = {
           code: 200
         }
@@ -767,7 +767,7 @@ RSpec.describe 'Sidecars' do
       end
 
       let(:expected_codes_and_responses) do
-        h = Hash.new(code: 403, errors: CF_NOT_AUTHORIZED)
+        h = Hash.new({ code: 403, errors: CF_NOT_AUTHORIZED }.freeze)
         %w[no_role org_auditor org_billing_manager].each { |r| h[r] = { code: 404 } }
         %w[admin space_developer].each { |r| h[r] = { code: 204 } }
         h

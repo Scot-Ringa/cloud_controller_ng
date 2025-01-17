@@ -66,7 +66,6 @@ class ServiceCredentialBindingsController < ApplicationController
     when 'key'
       unauthorized! unless can_write_to_active_space?(service_instance.space)
       suspended! unless is_space_active?(service_instance.space)
-
       create_key_binding(message, service_instance)
     end
   rescue V3::ServiceCredentialBindingAppCreate::UnprocessableCreate,
@@ -164,9 +163,7 @@ class ServiceCredentialBindingsController < ApplicationController
 
     render status: :ok, json: parameters
   rescue ServiceBindingRead::NotSupportedError
-    raise CloudController::Errors::ApiError.
-      new_from_details('ServiceFetchBindingParametersNotSupported').
-      with_response_code(502)
+    raise CloudController::Errors::ApiError.new_from_details('ServiceFetchBindingParametersNotSupported')
   end
 
   private
@@ -182,10 +179,12 @@ class ServiceCredentialBindingsController < ApplicationController
 
   def create_key_binding(message, service_instance)
     action = V3::ServiceCredentialBindingKeyCreate.new(user_audit_info, message.audit_hash)
-    binding = action.precursor(service_instance, message:)
+    VCAP::CloudController::ServiceKey.db.transaction do
+      binding = action.precursor(service_instance, message:)
 
-    pollable_job_guid = enqueue_bind_job(:key, binding.guid, message)
-    head :accepted, 'Location' => url_builder.build_url(path: "/v3/jobs/#{pollable_job_guid}")
+      pollable_job_guid = enqueue_bind_job(:key, binding.guid, message)
+      head :accepted, 'Location' => url_builder.build_url(path: "/v3/jobs/#{pollable_job_guid}")
+    end
   end
 
   def build_create_message(params)
@@ -216,21 +215,23 @@ class ServiceCredentialBindingsController < ApplicationController
 
   def create_app_binding(message, service_instance, app)
     action = V3::ServiceCredentialBindingAppCreate.new(user_audit_info, message.audit_hash)
-    binding = action.precursor(
-      service_instance,
-      app: app,
-      volume_mount_services_enabled: volume_services_enabled?,
-      message: message
-    )
-    log_telemetry(binding)
+    VCAP::CloudController::ServiceBinding.db.transaction do
+      binding = action.precursor(
+        service_instance,
+        app: app,
+        volume_mount_services_enabled: volume_services_enabled?,
+        message: message
+      )
+      log_telemetry(binding)
 
-    case service_instance
-    when ManagedServiceInstance
-      pollable_job_guid = enqueue_bind_job(:credential, binding.guid, message)
-      head :accepted, 'Location' => url_builder.build_url(path: "/v3/jobs/#{pollable_job_guid}")
-    when UserProvidedServiceInstance
-      action.bind(binding)
-      render status: :created, json: Presenters::V3::ServiceCredentialBindingPresenter.new(binding).to_hash
+      case service_instance
+      when ManagedServiceInstance
+        pollable_job_guid = enqueue_bind_job(:credential, binding.guid, message)
+        head :accepted, 'Location' => url_builder.build_url(path: "/v3/jobs/#{pollable_job_guid}")
+      when UserProvidedServiceInstance
+        action.bind(binding)
+        render status: :created, json: Presenters::V3::ServiceCredentialBindingPresenter.new(binding).to_hash
+      end
     end
   end
 

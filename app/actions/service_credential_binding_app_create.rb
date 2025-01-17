@@ -32,7 +32,10 @@ module VCAP::CloudController
 
         ServiceBinding.new.tap do |b|
           ServiceBinding.db.transaction do
-            binding.destroy if binding
+            if binding
+              binding.destroy
+              VCAP::Services::ServiceBrokers::V2::OrphanMitigator.new.cleanup_failed_bind(binding)
+            end
             b.save_with_attributes_and_new_operation(
               binding_details,
               CREATE_INITIAL_OPERATION
@@ -40,7 +43,13 @@ module VCAP::CloudController
             MetadataUpdate.update(b, message)
           end
         end
-      rescue Sequel::ValidationFailed, Sequel::UniqueConstraintViolation => e
+      rescue Sequel::ValidationFailed => e
+        if e.message.include?('app_guid and name unique')
+          raise UnprocessableCreate.new("The binding name is invalid. App binding names must be unique. The app already has a binding with name '#{message.name}'.")
+        elsif e.message.include?('service_instance_guid and app_guid unique')
+          raise UnprocessableCreate.new('The app is already bound to the service instance.')
+        end
+
         raise UnprocessableCreate.new(e.full_message)
       end
 

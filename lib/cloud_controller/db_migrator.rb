@@ -5,20 +5,49 @@ class DBMigrator
   SEQUEL_MIGRATIONS = File.join(MIGRATIONS_DIR, 'migrations')
 
   def self.from_config(config, db_logger)
-    VCAP::CloudController::Encryptor.db_encryption_key = config.get(:db_encryption_key)
+    config.load_db_encryption_key
     db = VCAP::CloudController::DB.connect(config.get(:db), db_logger)
-    new(db, config.get(:max_migration_duration_in_minutes))
+    new(db, config.get(:max_migration_duration_in_minutes), config.get(:max_migration_statement_runtime_in_seconds), config.get(:migration_psql_worker_memory_kb))
   end
 
-  def initialize(db, max_migration_duration_in_minutes=nil)
+  def initialize(db, max_migration_duration_in_minutes=nil, max_migration_statement_runtime_in_seconds=nil, migration_psql_worker_memory_kb=nil)
     @db = db
     @timeout_in_minutes = default_two_weeks(max_migration_duration_in_minutes)
+
+    @max_statement_runtime_in_milliseconds = if max_migration_statement_runtime_in_seconds.nil? || max_migration_statement_runtime_in_seconds <= 0
+                                               VCAP::Migration::PSQL_DEFAULT_STATEMENT_TIMEOUT
+                                             else
+                                               max_migration_statement_runtime_in_seconds * 1000
+                                             end
+
+    return unless @db.database_type == :postgres
+
+    @db.run("SET statement_timeout TO #{@max_statement_runtime_in_milliseconds}")
+    @db.run("SET work_mem = #{migration_psql_worker_memory_kb}") unless migration_psql_worker_memory_kb.nil?
   end
 
   def apply_migrations(opts={})
     Sequel.extension :migration
     require 'vcap/sequel_case_insensitive_string_monkeypatch'
-    Sequel::Migrator.run(@db, SEQUEL_MIGRATIONS, opts)
+
+    if ENV.fetch('WITH_BENCHMARK', false)
+      # rubocop:disable Rails/Output
+      puts('######################################')
+      puts('# Starting migrations with benchmark #')
+      puts('######################################')
+      require 'benchmark'
+      bm_output = Benchmark.measure { Sequel::Migrator.run(@db, SEQUEL_MIGRATIONS, opts) }
+      puts('###########')
+      puts('# Results #')
+      puts('###########')
+      puts("Total time for all migrations: #{bm_output.total} seconds")
+      puts("System time for all migrations: #{bm_output.stime} seconds")
+      puts("User time for all migrations: #{bm_output.utime} seconds")
+      puts("Real time for all migrations: #{bm_output.real} seconds")
+      # rubocop:enable Rails/Output
+    else
+      Sequel::Migrator.run(@db, SEQUEL_MIGRATIONS, opts)
+    end
   end
 
   def rollback(number_to_rollback)
@@ -32,12 +61,10 @@ class DBMigrator
     logger = Steno.logger('cc.db.wait_until_current')
 
     logger.info('waiting indefinitely for database schema to be current') unless db_is_current_or_newer_than_local_migrations?
-
     timeout_message = 'ccdb.max_migration_duration_in_minutes exceeded'
     Timeout.timeout(@timeout_in_minutes * 60, message: timeout_message) do
       sleep(1) until db_is_current_or_newer_than_local_migrations?
     end
-
     logger.info('database schema is as new or newer than locally available migrations')
   end
 

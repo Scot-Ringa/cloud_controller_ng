@@ -3,6 +3,7 @@ require 'cloud_controller/diego/protocol/container_network_info'
 require 'cloud_controller/diego/protocol/routing_info'
 require 'cloud_controller/diego/buildpack/desired_lrp_builder'
 require 'cloud_controller/diego/docker/desired_lrp_builder'
+require 'cloud_controller/diego/cnb/desired_lrp_builder'
 require 'cloud_controller/diego/process_guid'
 require 'cloud_controller/diego/ssh_key'
 require 'credhub/config_helpers'
@@ -56,11 +57,11 @@ module VCAP::CloudController
         if allow_ssh?
           ports << DEFAULT_SSH_PORT
 
-          routes[SSH_ROUTES_KEY] = MultiJson.dump({
-                                                    container_port: DEFAULT_SSH_PORT,
-                                                    private_key: ssh_key.private_key,
-                                                    host_fingerprint: ssh_key.fingerprint
-                                                  })
+          routes[SSH_ROUTES_KEY] = Oj.dump({
+                                             container_port: DEFAULT_SSH_PORT,
+                                             private_key: ssh_key.private_key,
+                                             host_fingerprint: ssh_key.fingerprint
+                                           })
         end
 
         {
@@ -150,19 +151,21 @@ module VCAP::CloudController
 
       def generate_routes(info)
         http_routes = (info['http_routes'] || []).map do |i|
-          {
+          http_route = {
             hostnames: [i['hostname']],
             port: i['port'],
             route_service_url: i['route_service_url'],
             isolation_segment: IsolationSegmentSelector.for_space(process.space),
             protocol: i['protocol']
           }
+          http_route[:options] = i['options'] if i['options']
+          http_route
         end
 
         {
-          CF_ROUTES_KEY => MultiJson.dump(http_routes),
-          TCP_ROUTES_KEY => MultiJson.dump((info['tcp_routes'] || [])),
-          INTERNAL_ROUTES_KEY => MultiJson.dump((info['internal_routes'] || []))
+          CF_ROUTES_KEY => Oj.dump(http_routes),
+          TCP_ROUTES_KEY => Oj.dump((info['tcp_routes'] || [])),
+          INTERNAL_ROUTES_KEY => Oj.dump((info['internal_routes'] || []))
         }
       end
 

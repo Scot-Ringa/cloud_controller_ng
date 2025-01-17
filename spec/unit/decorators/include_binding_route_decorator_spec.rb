@@ -5,18 +5,26 @@ module VCAP
   module CloudController
     RSpec.describe IncludeBindingRouteDecorator do
       subject(:decorator) { described_class }
-      let(:bindings) { Array.new(3) { RouteBinding.make } }
-      let(:routes) do
-        bindings.
-          map(&:route).
-          map { |r| Presenters::V3::RoutePresenter.new(r).to_hash }
+
+      let(:bindings) do
+        service_instance = ManagedServiceInstance.make(:routing)
+        route = Route.make(space: service_instance.space, created_at: Time.now.utc - 1.second)
+
+        [
+          RouteBinding.make(service_instance:, route:),
+          RouteBinding.make
+        ]
       end
 
-      it 'decorates the given hash with service instances from bindings' do
+      let(:routes) do
+        bindings.map { |r| Presenters::V3::RoutePresenter.new(r.route).to_hash }
+      end
+
+      it 'decorates the given hash with service instances from bindings in the correct order' do
         dict = { foo: 'bar' }
         hash = subject.decorate(dict, bindings)
         expect(hash[:foo]).to eq('bar')
-        expect(hash[:included][:routes]).to match_array(routes)
+        expect(hash[:included][:routes]).to eq(routes)
       end
 
       it 'does not overwrite other included fields' do
@@ -36,16 +44,16 @@ module VCAP
         )
 
         hash = subject.decorate({}, bindings)
-        expect(hash[:included][:routes]).to have(3).items
+        expect(hash[:included][:routes]).to have(2).items
       end
 
       describe '.match?' do
         it 'matches include arrays containing "route"' do
-          expect(decorator).to be_match(%w[potato route turnip])
+          expect(decorator.match?(%w[potato route turnip])).to be(true)
         end
 
         it 'does not match other include arrays' do
-          expect(decorator).not_to be_match(%w[potato turnip])
+          expect(decorator.match?(%w[potato turnip])).not_to be(true)
         end
       end
     end

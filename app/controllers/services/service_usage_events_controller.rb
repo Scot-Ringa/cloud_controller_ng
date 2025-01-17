@@ -1,5 +1,3 @@
-require 'vcap/services/api'
-
 module VCAP::CloudController
   class ServiceUsageEventsController < RestController::ModelController
     query_parameters :service_instance_type, :service_guid
@@ -35,7 +33,7 @@ module VCAP::CloudController
 
         dataset = dataset.filter { id > previous_event.id }
       end
-      super(model, dataset, query_params, opts)
+      super
     end
   end
 end

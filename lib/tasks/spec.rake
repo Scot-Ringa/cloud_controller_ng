@@ -7,6 +7,8 @@ namespace :spec do
       run_specs(ARGV[1])
     else
       run_specs_parallel('spec')
+      # Run isolated specs separately since they might affect other tests
+      run_specs('spec/isolated_specs')
     end
   end
 
@@ -23,21 +25,34 @@ namespace :spec do
     run_failed_specs
   end
 
-  desc 'Run tests on a already migrated database'
-  task no_recreate: ['db:pick'] do
+  desc 'Run tests on already migrated databases'
+  task without_migrate: ['db:pick'] do
+    # We exclude specs that test migration behaviour since this breaks/alters the DB in the middle of a test
     if ARGV[1]
-      run_specs(ARGV[1])
+      run_specs(ARGV[1], 'NO_DB_MIGRATION=true')
     else
-      run_specs_parallel('spec')
+      run_specs_parallel('spec', 'NO_DB_MIGRATION=true')
+      # Run isolated specs separately since they might affect other tests
+      run_specs('spec/isolated_specs', 'NO_DB_MIGRATION=true')
     end
   end
 
-  def run_specs(path)
-    sh "bundle exec rspec #{path} --require rspec/instafail --format RSpec::Instafail --format progress"
+  def run_specs(path, env_vars='')
+    sh "#{env_vars} bundle exec rspec #{path} --require rspec/instafail --format RSpec::Instafail --format progress"
   end
 
-  def run_specs_parallel(path)
-    sh "bundle exec parallel_rspec --test-options '--order rand' --single spec/integration/ --single spec/acceptance/ -- #{path}"
+  def run_specs_parallel(path, env_vars='')
+    command = <<~CMD
+      #{env_vars} bundle exec parallel_rspec \
+      --test-options '--order rand' \
+      --single spec/integration/ \
+      --single spec/acceptance/ \
+      --isolate \
+      --exclude-pattern 'spec/isolated_specs/' \
+      -- #{path}
+    CMD
+
+    sh command
   end
 
   def run_failed_specs

@@ -8,6 +8,10 @@ module VCAP::CloudController
         AppUsageEvent.find(guid:)
       end
 
+      def find_by_task_and_state(task:, state:)
+        AppUsageEvent.find(task_guid: task.guid, state: state)
+      end
+
       def create_from_process(process, state_name=nil)
         AppUsageEvent.create(
           state: state_name || process.state,
@@ -76,7 +80,7 @@ module VCAP::CloudController
           previous_package_state: build.package ? build.package.initial_value(:state) : nil
         }
 
-        if build.lifecycle_type == Lifecycles::BUILDPACK
+        if build.lifecycle_type != Lifecycles::DOCKER
           opts[:buildpack_guid] = build.droplet&.buildpack_receipt_buildpack_guid
           opts[:buildpack_name] = CloudController::UrlSecretObfuscator.obfuscate(build.droplet&.buildpack_receipt_buildpack || build.lifecycle_data.buildpacks.first)
         end

@@ -30,8 +30,9 @@ module VCAP::CloudController
       end
 
       it 'audits the process rescheduling event' do
-        post url, MultiJson.dump(rescheduling_request)
+        post url, Oj.dump(rescheduling_request)
         expect(last_response.status).to eq(200)
+        expect(last_response.body).to eq '{}'
 
         app_event = Event.find(actee: diego_process.guid, actor_type: 'process')
 
@@ -52,9 +53,10 @@ module VCAP::CloudController
         before { diego_process.delete }
 
         it 'fails with a 404' do
-          post url, MultiJson.dump(rescheduling_request)
+          post url, Oj.dump(rescheduling_request)
 
           expect(last_response.status).to eq(404)
+          expect(last_response.body).to match(/ProcessNotFound/)
         end
       end
     end

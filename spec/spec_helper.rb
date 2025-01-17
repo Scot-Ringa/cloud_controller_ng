@@ -70,8 +70,6 @@ init_block = proc do
   require 'cloud_controller'
   require 'allowy/rspec'
 
-  require 'posix/spawn'
-
   require 'rspec_api_documentation'
   require 'services'
 
@@ -83,12 +81,18 @@ end
 
 each_run_block = proc do
   # Moving this line into the init-block means that changes in code files aren't detected.
-  VCAP::CloudController::SpecBootstrap.init
+  if ENV['NO_DB_MIGRATION']
+    VCAP::CloudController::SpecBootstrap.init(do_schema_migration: false)
+  else
+    VCAP::CloudController::SpecBootstrap.init(do_schema_migration: true)
+  end
 
   Dir[File.expand_path('support/**/*.rb', File.dirname(__FILE__))].each { |file| require file }
 
   # each-run here?
   RSpec.configure do |rspec_config|
+    rspec_config.filter_run_when_matching :focus
+
     rspec_config.mock_with :rspec do |mocks|
       mocks.verify_partial_doubles = true
     end
@@ -106,6 +110,7 @@ each_run_block = proc do
     rspec_config.include TimeHelpers
     rspec_config.include LinkHelpers
     rspec_config.include BackgroundJobHelpers
+    rspec_config.include LogHelpers
 
     rspec_config.include ServiceBrokerHelpers
     rspec_config.include UserHelpers
@@ -127,11 +132,16 @@ each_run_block = proc do
 
     rspec_config.include SpaceRestrictedResponseGenerators
 
-    rspec_config.before(:all) { WebMock.disable_net_connect!(allow: %w[codeclimate.com fake.bbs]) }
+    rspec_config.before(:all) do
+      WebMock.disable_net_connect!(allow: %w[codeclimate.com fake.bbs])
+    end
     rspec_config.before(:all, type: :integration) do
       WebMock.allow_net_connect!
       @uaa_server = FakeUAAServer.new(6789)
       @uaa_server.start
+    end
+    rspec_config.before(:all, type: :migration) do
+      skip 'Skipped due to NO_DB_MIGRATION env variable being set' if ENV['NO_DB_MIGRATION']
     end
     rspec_config.after(:all, type: :integration) do
       WebMock.disable_net_connect!(allow: %w[codeclimate.com fake.bbs])
@@ -149,6 +159,10 @@ each_run_block = proc do
 
     rspec_config.before :suite do
       VCAP::CloudController::SpecBootstrap.seed
+      # We only want to load rake tasks once:
+      # calling this more than once will load tasks again and 'invoke' or 'execute' calls
+      # will call rake tasks multiple times
+      Application.load_tasks
     end
 
     rspec_config.before do

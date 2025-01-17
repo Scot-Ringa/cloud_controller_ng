@@ -4,22 +4,32 @@ require 'decorators/include_service_plan_space_organization_decorator'
 module VCAP::CloudController
   RSpec.describe IncludeServicePlanSpaceOrganizationDecorator do
     describe '.decorate' do
-      let(:org1) { Organization.make }
+      let(:org1) { Organization.make(created_at: Time.now.utc - 1.second) }
       let(:org2) { Organization.make }
 
-      let(:space1) { Space.make(organization: org1) }
+      let(:space1) { Space.make(organization: org1, created_at: Time.now.utc - 1.second) }
       let(:space2) { Space.make(organization: org2) }
 
-      let!(:space_scoped_plan_1) { generate_space_scoped_plan(space1) }
-      let!(:space_scoped_plan_2) { generate_space_scoped_plan(space2) }
+      let(:space_scoped_plan_1) { generate_space_scoped_plan(space1) }
+      let(:space_scoped_plan_2) { generate_space_scoped_plan(space2) }
 
-      it 'does not add space or orgs for global plan' do
-        hash = described_class.decorate({}, [ServicePlan.make(public: true)])
-        expect(hash[:included][:spaces]).to be_empty
-        expect(hash[:included][:organizations]).to be_empty
+      context 'global plan' do
+        let(:plans) { [ServicePlan.make(public: true)] }
+
+        it 'does not add space or orgs' do
+          hash = described_class.decorate({}, plans)
+          expect(hash[:included][:spaces]).to be_empty
+          expect(hash[:included][:organizations]).to be_empty
+        end
+
+        it 'does not query the database' do
+          expect do
+            described_class.decorate({}, plans)
+          end.to have_queried_db_times(/select \* from .(spaces|organizations). where/i, 0)
+        end
       end
 
-      it 'decorates the given hash with spaces and orgs from service plans' do
+      it 'decorates the given hash with spaces and orgs from service plans in the correct order' do
         undecorated_hash = { foo: 'bar', included: { monkeys: %w[zach greg] } }
         hash = described_class.decorate(undecorated_hash, [space_scoped_plan_1, space_scoped_plan_2])
 
@@ -27,9 +37,9 @@ module VCAP::CloudController
         expect(hash[:included][:monkeys]).to contain_exactly('zach', 'greg')
         expect(hash[:included].keys).to have(3).keys
 
-        expect(hash[:included][:spaces]).to contain_exactly(Presenters::V3::SpacePresenter.new(space1).to_hash, Presenters::V3::SpacePresenter.new(space2).to_hash)
+        expect(hash[:included][:spaces]).to eq([Presenters::V3::SpacePresenter.new(space1).to_hash, Presenters::V3::SpacePresenter.new(space2).to_hash])
 
-        expect(hash[:included][:organizations]).to contain_exactly(Presenters::V3::OrganizationPresenter.new(org1).to_hash, Presenters::V3::OrganizationPresenter.new(org2).to_hash)
+        expect(hash[:included][:organizations]).to eq([Presenters::V3::OrganizationPresenter.new(org1).to_hash, Presenters::V3::OrganizationPresenter.new(org2).to_hash])
       end
 
       it 'only includes the spaces and orgs from the specified service plans' do
@@ -39,7 +49,7 @@ module VCAP::CloudController
       end
 
       context 'when plans share a space' do
-        let!(:space_scoped_plan_same_space) { generate_space_scoped_plan(space1) }
+        let(:space_scoped_plan_same_space) { generate_space_scoped_plan(space1) }
 
         it 'does not duplicate the space' do
           hash = described_class.decorate({}, [space_scoped_plan_1, space_scoped_plan_same_space])
@@ -49,7 +59,7 @@ module VCAP::CloudController
 
       context 'when plans share an org' do
         let(:space3) { Space.make(organization: org2) }
-        let!(:space_scoped_plan_same_org) { generate_space_scoped_plan(space3) }
+        let(:space_scoped_plan_same_org) { generate_space_scoped_plan(space3) }
 
         it 'does not duplicate the org' do
           hash = described_class.decorate({}, [space_scoped_plan_2, space_scoped_plan_same_org])
@@ -60,11 +70,11 @@ module VCAP::CloudController
 
     describe '.match?' do
       it 'matches arrays containing "space.organization"' do
-        expect(described_class).to be_match(['potato', 'space.organization', 'turnip'])
+        expect(described_class.match?(['potato', 'space.organization', 'turnip'])).to be(true)
       end
 
       it 'does not match other arrays' do
-        expect(described_class).not_to be_match(%w[potato turnip])
+        expect(described_class.match?(%w[potato turnip])).not_to be(true)
       end
     end
   end

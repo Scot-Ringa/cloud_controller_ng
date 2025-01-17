@@ -14,6 +14,7 @@ RSpec.describe 'Info Request' do
         description: TestConfig.config[:info][:description],
         name: TestConfig.config[:info][:name],
         version: TestConfig.config[:info][:version],
+        osbapi_version: TestConfig.config[:info][:osbapi_version],
         links: {
           self: { href: "#{link_prefix}/v3/info" },
           support: { href: TestConfig.config[:info][:support_address] }
@@ -21,9 +22,17 @@ RSpec.describe 'Info Request' do
       }
     end
 
+    before do
+      allow(File).to receive(:exist?).and_call_original
+      allow(File).to receive(:exist?).with(Rails.root.join('config/osbapi_version').to_s).and_return(true)
+      allow(File).to receive(:read).with(Rails.root.join('config/osbapi_version').to_s).and_return('1.0.0')
+
+      TestConfig.override(info: TestConfig.config[:info].merge(osbapi_version: '1.0.0'))
+    end
+
     it 'includes data from the config' do
       get '/v3/info'
-      expect(MultiJson.load(last_response.body)).to match_json_response(return_info_json)
+      expect(Oj.load(last_response.body)).to match_json_response(return_info_json)
     end
 
     context 'when no info values are set' do
@@ -38,6 +47,7 @@ RSpec.describe 'Info Request' do
           description: '',
           name: '',
           version: 0,
+          osbapi_version: '',
           links: {
             self: { href: "#{link_prefix}/v3/info" },
             support: { href: '' }
@@ -47,11 +57,12 @@ RSpec.describe 'Info Request' do
 
       before do
         TestConfig.override(info: nil)
+        allow(File).to receive(:exist?).with(Rails.root.join('config/osbapi_version').to_s).and_return(false)
       end
 
       it 'includes has proper empty values' do
         get '/v3/info'
-        expect(MultiJson.load(last_response.body)).to match_json_response(return_info_json)
+        expect(Oj.load(last_response.body)).to match_json_response(return_info_json)
       end
     end
   end
@@ -85,7 +96,7 @@ RSpec.describe 'Info Request' do
     end
 
     let(:expected_codes_and_responses) do
-      h = Hash.new(code: 404)
+      h = Hash.new({ code: 404 }.freeze)
       h['admin'] = { code: 200, response_object: info_summary }
       h['admin_read_only'] = { code: 200, response_object: info_summary }
       h['global_auditor'] = { code: 200, response_object: info_summary }

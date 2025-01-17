@@ -228,6 +228,7 @@ module VCAP::CloudController
     # explicitly unstaged app
     let(:process) do
       ProcessModelFactory.make.tap do |p|
+        p.desired_droplet.app.update(droplet_guid: nil)
         p.desired_droplet.destroy
         p.reload
       end
@@ -237,6 +238,7 @@ module VCAP::CloudController
       Fog.unmock!
       TestConfig.override(**staging_config)
       set_current_user_as_admin(user: User.make(guid: '1234'), email: 'joe@joe.com', user_name: 'briggs')
+      allow_any_instance_of(BitsExpiration).to receive(:expire_packages!)
     end
 
     after { FileUtils.rm_rf(workspace) }
@@ -257,7 +259,7 @@ module VCAP::CloudController
         get "/internal/v4/staging_jobs/#{job_guid}"
 
         expect(last_response.status).to eq(200)
-        expect(decoded_response(symbolize_keys: true)).to eq(StagingJobPresenter.new(job, 'https').to_hash)
+        expect(decoded_response(symbol_keys: true)).to eq(StagingJobPresenter.new(job, 'https').to_hash)
         expect(decoded_response['metadata']['guid']).to eq(job_guid)
       end
     end

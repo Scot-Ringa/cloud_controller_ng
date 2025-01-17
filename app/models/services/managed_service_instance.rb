@@ -78,25 +78,21 @@ module VCAP::CloudController
     end
 
     def to_hash(opts={})
-      return super(opts) if last_operation.nil?
+      return super if last_operation.nil?
 
       last_operation_hash = last_operation.to_hash({})
-      super(opts).merge!('last_operation' => last_operation_hash)
+      super.merge!('last_operation' => last_operation_hash)
     end
 
     def gateway_data=(val)
-      str = MultiJson.dump(val)
+      str = Oj.dump(val)
       super(str)
     end
 
     def gateway_data
       val = super
-      val = MultiJson.load(val) if val
+      val = Oj.load(val) if val
       val
-    end
-
-    def requester
-      VCAP::Services::Api::SynchronousHttpRequest
     end
 
     delegate :service, to: :service_plan

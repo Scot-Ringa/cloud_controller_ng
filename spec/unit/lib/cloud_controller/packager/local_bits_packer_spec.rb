@@ -26,10 +26,19 @@ module CloudController::Packager
       )
     end
 
-    let(:fingerprints) do
+    let(:corrupted_fingerprints) do
       path = File.join(local_tmp_dir, 'content')
       sha  = 'some_fake_sha'
       File.write(path, 'content')
+      global_app_bits_cache.cp_to_blobstore(path, sha)
+
+      [{ 'fn' => 'path/to/content.txt', 'size' => 123, 'sha1' => sha }]
+    end
+
+    let(:fingerprints) do
+      path = File.join(local_tmp_dir, 'content')
+      File.write(path, 'content')
+      sha = Digester.new.digest_path(path)
       global_app_bits_cache.cp_to_blobstore(path, sha)
 
       [{ 'fn' => 'path/to/content.txt', 'size' => 123, 'sha1' => sha }]
@@ -136,6 +145,18 @@ module CloudController::Packager
             expect(package_blobstore.exists?(blobstore_key)).to be true
           end
         end
+
+        context 'and there are corrupted cached files' do
+          let(:cached_files_fingerprints) { corrupted_fingerprints }
+
+          it 'deletes the offending files from the blobstore and errors with a ChecksumMismatch error' do
+            expect(global_app_bits_cache).to receive(:delete).with('some_fake_sha')
+            expect do
+              packer.send_package_to_blobstore(blobstore_key, uploaded_files_path, cached_files_fingerprints)
+            end.
+              to raise_error(CloudController::Errors::ApiError, /One or more cached resources/)
+          end
+        end
       end
 
       context 'when the zip file is invalid' do
@@ -146,6 +167,15 @@ module CloudController::Packager
           expect do
             packer.send_package_to_blobstore(blobstore_key, uploaded_files_path, cached_files_fingerprints)
           end.to raise_error(CloudController::Errors::ApiError, /invalid/)
+        end
+      end
+
+      context 'when there are leftovers from the previous run on the filesystem' do
+        it 'raises an informative error' do
+          Dir.mkdir(File.join(local_tmp_dir, "local_bits_packer-#{blobstore_key}"))
+          expect do
+            packer.send_package_to_blobstore(blobstore_key, uploaded_files_path, cached_files_fingerprints)
+          end.to raise_error(ConflictError, /unfinished job/)
         end
       end
 
@@ -313,6 +343,33 @@ module CloudController::Packager
               `unzip #{local_tmp_dir}/package.zip path/to/content.txt -d #{local_tmp_dir}`
               expect(sprintf('%<mode>o', mode: File.stat(File.join(local_tmp_dir, 'path/to/content.txt')).mode)).to eq('100653')
             end
+          end
+        end
+      end
+
+      describe 'temporary directory cleanup' do
+        let(:local_bits_packer_path) { File.join(local_tmp_dir, "local_bits_packer-#{blobstore_key}") }
+
+        context 'when the package is successfully uploaded and processed' do
+          it 'removes the temporary directory created for packaging' do
+            allow_any_instance_of(CloudController::Blobstore::FogClient).to receive(:cp_to_blobstore)
+            allow(Digester).to receive(:new).and_return(instance_double(Digester, digest_path: 'fake-digest'))
+            expect(FileUtils).to receive(:remove_dir).with(local_bits_packer_path).and_call_original
+            packer.send_package_to_blobstore(blobstore_key, uploaded_files_path, cached_files_fingerprints)
+          end
+        end
+
+        context 'when an exception is raised during processing' do
+          it 'removes the temporary directory created for packaging' do
+            allow(File).to receive(:join).and_call_original
+            allow(Dir).to receive(:exist?).and_return(false)
+            allow(Dir).to receive(:mkdir)
+
+            expect(FileUtils).to receive(:remove_dir).with(local_bits_packer_path)
+            expect do
+              allow_any_instance_of(CloudController::Blobstore::FogClient).to receive(:cp_to_blobstore).and_raise(StandardError)
+              packer.send_package_to_blobstore(blobstore_key, uploaded_files_path, cached_files_fingerprints)
+            end.to raise_error(StandardError)
           end
         end
       end

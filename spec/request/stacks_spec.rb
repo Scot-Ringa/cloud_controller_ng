@@ -56,7 +56,7 @@ RSpec.describe 'Stacks Request' do
         end
 
         let(:expected_codes_and_responses) do
-          Hash.new(code: 200, response_objects: stacks_response_objects)
+          Hash.new({ code: 200, response_objects: stacks_response_objects }.freeze)
         end
         let!(:stack1) { VCAP::CloudController::Stack.make }
         let!(:stack2) { VCAP::CloudController::Stack.make(name: default_stack_name) }
@@ -335,7 +335,7 @@ RSpec.describe 'Stacks Request' do
       }
     end
     let(:expected_codes_and_responses) do
-      Hash.new(code: 200, response_object: stacks_response_object)
+      Hash.new({ code: 200, response_object: stacks_response_object }.freeze)
     end
 
     it_behaves_like 'permissions for single object endpoint', ALL_PERMISSIONS
@@ -371,7 +371,7 @@ RSpec.describe 'Stacks Request' do
         get "/v3/stacks/#{stack.guid}/apps", { per_page: 2 }, headers
 
         expect(last_response.status).to eq(200), last_response.body
-        parsed_response = MultiJson.load(last_response.body)
+        parsed_response = Oj.load(last_response.body)
         expect(parsed_response).to be_a_response_like(
           {
             'pagination' => {
@@ -399,6 +399,11 @@ RSpec.describe 'Stacks Request' do
                     'data' => {
                       'guid' => space.guid
                     }
+                  },
+                  'current_droplet' => {
+                    'data' => {
+                      'guid' => nil
+                    }
                   }
                 },
                 'created_at' => iso8601,
@@ -415,6 +420,7 @@ RSpec.describe 'Stacks Request' do
                   'tasks' => { 'href' => "#{link_prefix}/v3/apps/#{app_model1.guid}/tasks" },
                   'start' => { 'href' => "#{link_prefix}/v3/apps/#{app_model1.guid}/actions/start", 'method' => 'POST' },
                   'stop' => { 'href' => "#{link_prefix}/v3/apps/#{app_model1.guid}/actions/stop", 'method' => 'POST' },
+                  'clear_buildpack_cache' => { 'href' => "#{link_prefix}/v3/apps/#{app_model1.guid}/actions/clear_buildpack_cache", 'method' => 'POST' },
                   'revisions' => { 'href' => "#{link_prefix}/v3/apps/#{app_model1.guid}/revisions" },
                   'deployed_revisions' => { 'href' => "#{link_prefix}/v3/apps/#{app_model1.guid}/revisions/deployed" },
                   'features' => { 'href' => "#{link_prefix}/v3/apps/#{app_model1.guid}/features" }
@@ -434,7 +440,7 @@ RSpec.describe 'Stacks Request' do
         get "/v3/stacks/#{stack.guid}/apps", { per_page: 2 }, headers
 
         expect(last_response.status).to eq(200), last_response.body
-        parsed_response = MultiJson.load(last_response.body)
+        parsed_response = Oj.load(last_response.body)
         expect(parsed_response).to be_a_response_like(
           {
             'pagination' => {
@@ -462,6 +468,11 @@ RSpec.describe 'Stacks Request' do
                     'data' => {
                       'guid' => space.guid
                     }
+                  },
+                  'current_droplet' => {
+                    'data' => {
+                      'guid' => nil
+                    }
                   }
                 },
                 'created_at' => iso8601,
@@ -478,6 +489,7 @@ RSpec.describe 'Stacks Request' do
                   'tasks' => { 'href' => "#{link_prefix}/v3/apps/#{app_model1.guid}/tasks" },
                   'start' => { 'href' => "#{link_prefix}/v3/apps/#{app_model1.guid}/actions/start", 'method' => 'POST' },
                   'stop' => { 'href' => "#{link_prefix}/v3/apps/#{app_model1.guid}/actions/stop", 'method' => 'POST' },
+                  'clear_buildpack_cache' => { 'href' => "#{link_prefix}/v3/apps/#{app_model1.guid}/actions/clear_buildpack_cache", 'method' => 'POST' },
                   'revisions' => { 'href' => "#{link_prefix}/v3/apps/#{app_model1.guid}/revisions" },
                   'deployed_revisions' => { 'href' => "#{link_prefix}/v3/apps/#{app_model1.guid}/revisions/deployed" },
                   'features' => { 'href' => "#{link_prefix}/v3/apps/#{app_model1.guid}/features" }
@@ -499,6 +511,11 @@ RSpec.describe 'Stacks Request' do
                     'data' => {
                       'guid' => space2.guid
                     }
+                  },
+                  'current_droplet' => {
+                    'data' => {
+                      'guid' => nil
+                    }
                   }
                 },
                 'created_at' => iso8601,
@@ -515,6 +532,7 @@ RSpec.describe 'Stacks Request' do
                   'tasks' => { 'href' => "#{link_prefix}/v3/apps/#{app_model2.guid}/tasks" },
                   'start' => { 'href' => "#{link_prefix}/v3/apps/#{app_model2.guid}/actions/start", 'method' => 'POST' },
                   'stop' => { 'href' => "#{link_prefix}/v3/apps/#{app_model2.guid}/actions/stop", 'method' => 'POST' },
+                  'clear_buildpack_cache' => { 'href' => "#{link_prefix}/v3/apps/#{app_model2.guid}/actions/clear_buildpack_cache", 'method' => 'POST' },
                   'revisions' => { 'href' => "#{link_prefix}/v3/apps/#{app_model2.guid}/revisions" },
                   'deployed_revisions' => { 'href' => "#{link_prefix}/v3/apps/#{app_model2.guid}/revisions/deployed" },
                   'features' => { 'href' => "#{link_prefix}/v3/apps/#{app_model2.guid}/features" }
@@ -530,7 +548,7 @@ RSpec.describe 'Stacks Request' do
       let(:api_call) { ->(user_headers) { get "/v3/stacks/#{stack.guid}/apps", nil, user_headers } }
 
       let(:expected_codes_and_responses) do
-        h = Hash.new(code: 200, response_guids: [app_model1.guid, app_model2.guid])
+        h = Hash.new({ code: 200, response_guids: [app_model1.guid, app_model2.guid] }.freeze)
 
         h['org_auditor'] = {
           code: 200,

@@ -4,14 +4,14 @@ require 'decorators/field_service_instance_offering_decorator'
 module VCAP::CloudController
   RSpec.describe FieldServiceInstanceOfferingDecorator do
     describe '.decorate' do
-      let(:offering1) { Service.make(extra: '{"documentationUrl": "https://offering1.com"}', tags: %w[foo bar]) }
+      let(:offering1) { Service.make(extra: '{"documentationUrl": "https://offering1.com"}', tags: %w[foo bar], created_at: Time.now.utc - 1.second) }
       let(:offering2) { Service.make(extra: '{"documentationUrl": "https://offering2.com"}', tags: %w[baz]) }
 
       let(:plan1) { ServicePlan.make(service: offering1) }
       let(:plan2) { ServicePlan.make(service: offering2) }
 
-      let!(:service_instance_1) { ManagedServiceInstance.make(service_plan: plan1) }
-      let!(:service_instance_2) { ManagedServiceInstance.make(service_plan: plan2) }
+      let(:service_instance_1) { ManagedServiceInstance.make(service_plan: plan1) }
+      let(:service_instance_2) { ManagedServiceInstance.make(service_plan: plan2) }
 
       it 'can decorate with the service offering name' do
         undecorated_hash = { foo: 'bar', included: { monkeys: %w[zach greg] } }
@@ -159,7 +159,7 @@ module VCAP::CloudController
 
       context 'when instances are from the same offering' do
         let(:plan3) { ServicePlan.make(service: offering1) }
-        let!(:service_instance_3) { ManagedServiceInstance.make(service_plan: plan3) }
+        let(:service_instance_3) { ManagedServiceInstance.make(service_plan: plan3) }
 
         it 'does not duplicate the offering' do
           decorator = described_class.new({ 'service_plan.service_offering': ['name'] })
@@ -169,7 +169,7 @@ module VCAP::CloudController
       end
 
       context 'for user provided service instances' do
-        let!(:service_instance_3) { UserProvidedServiceInstance.make }
+        let(:service_instance_3) { UserProvidedServiceInstance.make }
 
         it 'returns the unchanged hash' do
           undecorated_hash = { foo: 'bar' }
@@ -186,24 +186,24 @@ module VCAP::CloudController
 
       fields.each do |field|
         it "matches value `#{field}` for key symbol `service_plan.service_offering`" do
-          expect(described_class).to be_match({ 'service_plan.service_offering': [field], other: ['bar'] })
+          expect(described_class.match?({ 'service_plan.service_offering': [field], other: ['bar'] })).to be(true)
         end
       end
 
       it 'matches all fields together for key symbol `service_plan.service_offering`' do
-        expect(described_class).to be_match({ 'service_plan.service_offering': fields, other: ['bar'] })
+        expect(described_class.match?({ 'service_plan.service_offering': fields, other: ['bar'] })).to be(true)
       end
 
       it 'does not match other values for a valid key' do
-        expect(described_class).not_to be_match({ 'service_plan.service_offering': ['foo'] })
+        expect(described_class.match?({ 'service_plan.service_offering': ['foo'] })).not_to be(true)
       end
 
       it 'does not match other key values' do
-        expect(described_class).not_to be_match({ other: ['bar'] })
+        expect(described_class.match?({ other: ['bar'] })).not_to be(true)
       end
 
       it 'does not match non-hashes' do
-        expect(described_class).not_to be_match('foo')
+        expect(described_class.match?('foo')).not_to be(true)
       end
     end
   end

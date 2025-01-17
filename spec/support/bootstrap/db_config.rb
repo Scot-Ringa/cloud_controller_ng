@@ -20,7 +20,8 @@ class DbConfig
       database: VCAP::CloudController::DatabasePartsParser.database_parts_from_connection(connection_string),
       pool_timeout: 10,
       read_timeout: 3600,
-      connection_validation_timeout: 3600
+      connection_validation_timeout: 3600,
+      max_connections: 42
     }
   end
 
@@ -66,7 +67,7 @@ class DbConfig
     if ENV['TEST_ENV_NUMBER'].presence
       "cc_test_#{ENV.fetch('TEST_ENV_NUMBER')}"
     else
-      'cc_test'
+      'cc_test_1'
     end
   end
 end

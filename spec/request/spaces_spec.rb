@@ -72,7 +72,7 @@ RSpec.describe 'Spaces' do
       let(:space) { nil }
       let(:api_call) { ->(user_headers) { post '/v3/spaces', request_body, user_headers } }
       let(:expected_codes_and_responses) do
-        h = Hash.new(code: 403, errors: CF_NOT_AUTHORIZED)
+        h = Hash.new({ code: 403, errors: CF_NOT_AUTHORIZED }.freeze)
         %w[admin org_manager].each { |r| h[r] = { code: 201 } }
         h['no_role'] = { code: 422 }
         h
@@ -118,7 +118,7 @@ RSpec.describe 'Spaces' do
       get "/v3/spaces/#{space1.guid}", nil, user_header
       expect(last_response.status).to eq(200)
 
-      parsed_response = MultiJson.load(last_response.body)
+      parsed_response = Oj.load(last_response.body)
       expect(parsed_response).to be_a_response_like(
         {
           'guid' => space1.guid,
@@ -148,7 +148,7 @@ RSpec.describe 'Spaces' do
       get "/v3/spaces/#{space1.guid}?include=organization", nil, user_header
       expect(last_response.status).to eq(200)
 
-      parsed_response = MultiJson.load(last_response.body)
+      parsed_response = Oj.load(last_response.body)
       orgs = parsed_response['included']['organizations']
 
       expect(orgs).to be_present
@@ -194,7 +194,7 @@ RSpec.describe 'Spaces' do
         get "/v3/spaces/#{space1.guid}", nil, user_header
         expect(last_response.status).to eq(200)
 
-        parsed_response = MultiJson.load(last_response.body)
+        parsed_response = Oj.load(last_response.body)
         expect(parsed_response).to be_a_response_like(
           {
             'guid' => space1.guid,
@@ -228,7 +228,7 @@ RSpec.describe 'Spaces' do
       let(:api_call) { ->(user_headers) { get "/v3/spaces/#{space.guid}", nil, user_headers } }
 
       let(:expected_codes_and_responses) do
-        h = Hash.new(code: 200, response_guid: space.guid)
+        h = Hash.new({ code: 200, response_guid: space.guid }.freeze)
 
         h['org_auditor']         = { code: 404, response_guid: nil }
         h['org_billing_manager'] = { code: 404, response_guid: nil }
@@ -284,7 +284,7 @@ RSpec.describe 'Spaces' do
         get '/v3/spaces?per_page=2', nil, user_header
         expect(last_response.status).to eq(200)
 
-        parsed_response = MultiJson.load(last_response.body)
+        parsed_response = Oj.load(last_response.body)
         expect(parsed_response).to be_a_response_like(
           {
             'pagination' => {
@@ -375,7 +375,7 @@ RSpec.describe 'Spaces' do
         get '/v3/spaces?label_selector=!fruit,env=prod,animal in (dog,horse)', nil, admin_header
         expect(last_response.status).to eq(200)
 
-        parsed_response = MultiJson.load(last_response.body)
+        parsed_response = Oj.load(last_response.body)
         expect(parsed_response['resources'].pluck('guid')).to contain_exactly(spaceB.guid, spaceC.guid)
       end
 
@@ -383,7 +383,7 @@ RSpec.describe 'Spaces' do
         get "/v3/spaces?label_selector=!fruit,env=prod,animal in (cat,horse)&organization_guids=#{orgF.guid}", nil, admin_header
         expect(last_response.status).to eq(200)
 
-        parsed_response = MultiJson.load(last_response.body)
+        parsed_response = Oj.load(last_response.body)
         expect(parsed_response['resources'].pluck('guid')).to contain_exactly(spaceF.guid)
       end
     end
@@ -396,7 +396,7 @@ RSpec.describe 'Spaces' do
       it 'can includes all orgs for spaces' do
         get '/v3/spaces?include=organization', nil, admin_header
         expect(last_response.status).to eq(200)
-        parsed_response = MultiJson.load(last_response.body)
+        parsed_response = Oj.load(last_response.body)
 
         orgs = parsed_response['included']['organizations']
         expect(orgs).to be_present
@@ -465,7 +465,7 @@ RSpec.describe 'Spaces' do
 
       it 'does not include spaces if no one asks for them' do
         get '/v3/spaces', nil, admin_header
-        parsed_response = MultiJson.load(last_response.body)
+        parsed_response = Oj.load(last_response.body)
         expect(parsed_response).not_to have_key('included')
       end
     end
@@ -483,7 +483,7 @@ RSpec.describe 'Spaces' do
       let(:api_call) { ->(user_headers) { get '/v3/spaces', nil, user_headers } }
 
       let(:expected_codes_and_responses) do
-        h = Hash.new(code: 200, response_guids: [space1.guid, space2.guid, space3.guid])
+        h = Hash.new({ code: 200, response_guids: [space1.guid, space2.guid, space3.guid] }.freeze)
 
         h['org_auditor']         = { code: 200, response_guids: [] }
         h['org_billing_manager'] = { code: 200, response_guids: [] }
@@ -637,7 +637,7 @@ RSpec.describe 'Spaces' do
       let(:global_sec_group) { VCAP::CloudController::SecurityGroup.make staging_default: true, name: 'global' }
 
       let(:expected_codes_and_responses) do
-        h = Hash.new(code: 404)
+        h = Hash.new({ code: 404 }.freeze)
         h['admin'] = { code: 200, response_objects: response_object }
         h['admin_read_only'] = { code: 200, response_objects: response_object }
         h['global_auditor'] = { code: 200, response_objects: response_object }
@@ -789,7 +789,7 @@ RSpec.describe 'Spaces' do
       let(:unaffiliated_sec_group) { VCAP::CloudController::SecurityGroup.make }
       let(:global_sec_group) { VCAP::CloudController::SecurityGroup.make running_default: true, name: 'global' }
       let(:expected_codes_and_responses) do
-        h = Hash.new(code: 404)
+        h = Hash.new({ code: 404 }.freeze)
         h['admin'] = { code: 200, response_objects: response_object }
         h['admin_read_only'] = { code: 200, response_objects: response_object }
         h['global_auditor'] = { code: 200, response_objects: response_object }
@@ -863,7 +863,7 @@ RSpec.describe 'Spaces' do
       let(:api_call) { ->(user_headers) { patch "/v3/spaces/#{space.guid}", request_body, user_headers } }
 
       let(:expected_codes_and_responses) do
-        h = Hash.new(code: 403, errors: CF_NOT_AUTHORIZED)
+        h = Hash.new({ code: 403, errors: CF_NOT_AUTHORIZED }.freeze)
 
         h['org_billing_manager'] = { code: 404 }
         h['org_auditor'] = { code: 404 }
@@ -933,7 +933,7 @@ RSpec.describe 'Spaces' do
         patch "/v3/spaces/#{space1.guid}", { metadata: { labels: { fruit: nil } } }.to_json, admin_header
         expect(last_response.status).to eq(200)
 
-        parsed_response = MultiJson.load(last_response.body)
+        parsed_response = Oj.load(last_response.body)
         expect(parsed_response).to be_a_response_like(
           {
             'guid' => space1.guid,
@@ -967,7 +967,7 @@ RSpec.describe 'Spaces' do
         patch "/v3/spaces/#{space1.guid}", { metadata: { labels: { fruit: 'strawberry' } } }.to_json, admin_header
         expect(last_response.status).to eq(200)
 
-        parsed_response = MultiJson.load(last_response.body)
+        parsed_response = Oj.load(last_response.body)
         expect(parsed_response).to be_a_response_like(
           {
             'guid' => space1.guid,
@@ -1055,7 +1055,7 @@ RSpec.describe 'Spaces' do
 
     context 'when the user is a member in the spaces org' do
       let(:expected_codes_and_responses) do
-        h = Hash.new(code: 403, errors: CF_NOT_AUTHORIZED)
+        h = Hash.new({ code: 403, errors: CF_NOT_AUTHORIZED }.freeze)
 
         h['org_billing_manager'] = { code: 404 }
         h['org_auditor'] = { code: 404 }
@@ -1130,7 +1130,7 @@ RSpec.describe 'Spaces' do
 
     context 'when the user is a member in the spaces org' do
       let(:expected_codes_and_responses) do
-        h = Hash.new(code: 403, errors: CF_NOT_AUTHORIZED)
+        h = Hash.new({ code: 403, errors: CF_NOT_AUTHORIZED }.freeze)
 
         h['org_billing_manager'] = { code: 404 }
         h['org_auditor'] = { code: 404 }
@@ -1198,7 +1198,7 @@ RSpec.describe 'Spaces' do
         get "v3/spaces/#{space.guid}/relationships/isolation_segment", nil, admin_headers
 
         expect(last_response.status).to eq(200)
-        parsed_response = MultiJson.load(last_response.body)
+        parsed_response = Oj.load(last_response.body)
         expect(parsed_response['data']).to be_nil
       end
     end
@@ -1219,7 +1219,7 @@ RSpec.describe 'Spaces' do
       end
 
       let(:expected_codes_and_responses) do
-        h = Hash.new(code: 200, response_object: expected_response)
+        h = Hash.new({ code: 200, response_object: expected_response }.freeze)
 
         h['org_auditor']         = { code: 404, response_guid: nil }
         h['org_billing_manager'] = { code: 404, response_guid: nil }
@@ -1252,7 +1252,7 @@ RSpec.describe 'Spaces' do
       end
 
       let(:expected_codes_and_responses) do
-        h = Hash.new(code: 403)
+        h = Hash.new({ code: 403 }.freeze)
         h['no_role']             = { code: 404 }
         h['org_auditor']         = { code: 404 }
         h['org_billing_manager'] = { code: 404 }
@@ -1342,7 +1342,7 @@ RSpec.describe 'Spaces' do
         it 'returns 200 and the filtered users' do
           get "/v3/spaces/#{space1.guid}/users?guids=#{user.guid}", nil, admin_header
 
-          parsed_response = MultiJson.load(last_response.body)
+          parsed_response = Oj.load(last_response.body)
           expected_pagination = {
             'total_results' => 1,
             'total_pages' => 1,
@@ -1379,7 +1379,7 @@ RSpec.describe 'Spaces' do
         it 'returns 200 and the filtered users' do
           get "/v3/spaces/#{space1.guid}/users?usernames=bob-mcjames&origins=Okta", nil, admin_header
 
-          parsed_response = MultiJson.load(last_response.body)
+          parsed_response = Oj.load(last_response.body)
           expected_pagination = {
             'total_results' => 1,
             'total_pages' => 1,
@@ -1402,7 +1402,7 @@ RSpec.describe 'Spaces' do
           get "/v3/spaces/#{space1.guid}/users?label_selector=animal in (dog)", nil, admin_header
           expect(last_response).to have_status_code(200)
 
-          parsed_response = MultiJson.load(last_response.body)
+          parsed_response = Oj.load(last_response.body)
           expected_pagination = {
             'total_results' => 1,
             'total_pages' => 1,
@@ -1510,11 +1510,11 @@ RSpec.describe 'Spaces' do
 
       let(:expected_codes_and_responses) do
         h = Hash.new(
-          code: 200,
-          response_objects: [
-            client_json,
-            current_user_json
-          ]
+          { code: 200,
+            response_objects: [
+              client_json,
+              current_user_json
+            ] }.freeze
         )
         h['no_role'] = {
           code: 404

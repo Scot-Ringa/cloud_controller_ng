@@ -16,9 +16,11 @@ module VCAP::CloudController::Metrics
     end
 
     DURATION_BUCKETS = [5, 10, 30, 60, 300, 600, 890].freeze
+    CONNECTION_DURATION_BUCKETS = [0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1, 5, 10].freeze
 
     METRICS = [
       { type: :gauge, name: :cc_job_queues_length_total, docstring: 'Job queues length of worker processes', labels: [:queue], aggregation: :most_recent },
+      { type: :gauge, name: :cc_job_queues_load_total, docstring: 'Number of background jobs ready to run now ', labels: [:queue], aggregation: :most_recent },
       { type: :gauge, name: :cc_failed_jobs_total, docstring: 'Number of failed jobs of worker processes', labels: [:queue], aggregation: :most_recent },
       { type: :counter, name: :cc_staging_requests_total, docstring: 'Number of staging requests' },
       { type: :histogram, name: :cc_staging_succeeded_duration_seconds, docstring: 'Durations of successful staging events', buckets: DURATION_BUCKETS },
@@ -34,7 +36,15 @@ module VCAP::CloudController::Metrics
       { type: :gauge, name: :cc_running_tasks_total, docstring: 'Total running tasks', aggregation: :most_recent },
       { type: :gauge, name: :cc_running_tasks_memory_bytes, docstring: 'Total memory consumed by running tasks', aggregation: :most_recent },
       { type: :gauge, name: :cc_users_total, docstring: 'Number of users', aggregation: :most_recent },
-      { type: :gauge, name: :cc_deployments_in_progress_total, docstring: 'Number of in progress deployments', aggregation: :most_recent }
+      { type: :gauge, name: :cc_deployments_in_progress_total, docstring: 'Number of in progress deployments', aggregation: :most_recent },
+      { type: :gauge, name: :cc_acquired_db_connections_total, labels: %i[process_type], docstring: 'Number of acquired DB connections' },
+      { type: :histogram, name: :cc_db_connection_hold_duration_seconds, docstring: 'The time threads were holding DB connections', buckets: CONNECTION_DURATION_BUCKETS },
+      # cc_connection_pool_timeouts_total must be a gauge metric, because otherwise we cannot match them with processes
+      { type: :gauge, name: :cc_db_connection_pool_timeouts_total, labels: %i[process_type],
+        docstring: 'Number of threads which failed to acquire a free DB connection from the pool within the timeout' },
+      { type: :gauge, name: :cc_open_db_connections_total, labels: %i[process_type], docstring: 'Number of open DB connections (acquired + available)' },
+      { type: :histogram, name: :cc_db_connection_wait_duration_seconds, docstring: 'The time threads were waiting for an available DB connection',
+        buckets: CONNECTION_DURATION_BUCKETS }
     ].freeze
 
     THIN_METRICS = [
@@ -60,20 +70,20 @@ module VCAP::CloudController::Metrics
 
       # Register all metrics, to initialize them for discoverability
       METRICS.each { |metric| register(metric) }
-      THIN_METRICS.each { |metric| register(metric) } if VCAP::CloudController::Config.config.get(:webserver) == 'thin'
-      PUMA_METRICS.each { |metric| register(metric) } if VCAP::CloudController::Config.config.get(:webserver) == 'puma'
+      THIN_METRICS.each { |metric| register(metric) } if VCAP::CloudController::Config.config&.get(:webserver) == 'thin'
+      PUMA_METRICS.each { |metric| register(metric) } if VCAP::CloudController::Config.config&.get(:webserver) == 'puma'
     end
 
     def update_gauge_metric(metric, value, labels: {})
       @registry.get(metric).set(value, labels:)
     end
 
-    def increment_gauge_metric(metric)
-      @registry.get(metric).increment
+    def increment_gauge_metric(metric, labels: {})
+      @registry.get(metric).increment(labels:)
     end
 
-    def decrement_gauge_metric(metric)
-      @registry.get(metric).decrement
+    def decrement_gauge_metric(metric, labels: {})
+      @registry.get(metric).decrement(labels:)
     end
 
     def increment_counter_metric(metric)
@@ -99,6 +109,12 @@ module VCAP::CloudController::Metrics
     def update_job_queue_length(pending_job_count_by_queue)
       pending_job_count_by_queue.each do |key, value|
         update_gauge_metric(:cc_job_queues_length_total, value, labels: { queue: key.to_s.underscore })
+      end
+    end
+
+    def update_job_queue_load(update_job_queue_load)
+      update_job_queue_load.each do |key, value|
+        update_gauge_metric(:cc_job_queues_load_total, value, labels: { queue: key.to_s.underscore })
       end
     end
 

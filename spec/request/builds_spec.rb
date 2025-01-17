@@ -8,7 +8,7 @@ RSpec.describe 'Builds' do
   let(:developer_headers) { headers_for(developer, user_name: user_name, email: 'bob@loblaw.com') }
 
   let(:user_name) { 'bob the builder' }
-  let(:parsed_response) { MultiJson.load(last_response.body) }
+  let(:parsed_response) { Oj.load(last_response.body) }
   let(:app_model) { VCAP::CloudController::AppModel.make(space_guid: space.guid, name: 'my-app') }
   let(:second_app_model) { VCAP::CloudController::AppModel.make(space_guid: space.guid, name: 'my-second-app') }
   let(:rails_logger) { double('rails_logger', info: nil) }
@@ -127,7 +127,7 @@ RSpec.describe 'Builds' do
 
       let(:expected_codes_and_responses) do
         h = Hash.new(
-          code: 422
+          { code: 422 }.freeze
         )
         h['admin'] = {
           code: 201
@@ -194,7 +194,7 @@ RSpec.describe 'Builds' do
               'user-id' => OpenSSL::Digest::SHA256.hexdigest(developer.guid)
             }
           }
-          expect(logger_spy).to have_received(:info).with(JSON.generate(expected_json))
+          expect(logger_spy).to have_received(:info).with(Oj.dump(expected_json))
           expect(last_response.status).to eq(201), last_response.body
         end
       end
@@ -292,8 +292,8 @@ RSpec.describe 'Builds' do
 
         let(:expected_codes_and_responses) do
           h = Hash.new(
-            code: 200,
-            response_guids: [build.guid, second_build.guid]
+            { code: 200,
+              response_guids: [build.guid, second_build.guid] }.freeze
           )
           h['org_auditor'] = { code: 200, response_objects: [] }
           h['org_billing_manager'] = { code: 200, response_objects: [] }
@@ -314,7 +314,7 @@ RSpec.describe 'Builds' do
       it 'lists the builds for spaces that the user has access to' do
         get "v3/builds?order_by=#{order_by}&per_page=#{per_page}", nil, developer_headers
 
-        parsed_response = MultiJson.load(last_response.body)
+        parsed_response = Oj.load(last_response.body)
 
         expect(last_response.status).to eq(200)
         expect(parsed_response['resources']).to include(hash_including('guid' => build.guid))
@@ -455,7 +455,7 @@ RSpec.describe 'Builds' do
     it 'shows the build' do
       get "v3/builds/#{build.guid}", nil, developer_headers
 
-      parsed_response = MultiJson.load(last_response.body)
+      parsed_response = Oj.load(last_response.body)
 
       expected_response =
         {
@@ -511,7 +511,7 @@ RSpec.describe 'Builds' do
         let(:api_call) { ->(user_headers) { get "v3/builds/#{build.guid}", nil, user_headers } }
 
         let(:expected_codes_and_responses) do
-          h = Hash.new(code: 200)
+          h = Hash.new({ code: 200 }.freeze)
           h['org_auditor'] = { code: 404 }
           h['org_billing_manager'] = { code: 404 }
           h['no_role'] = { code: 404 }
@@ -567,7 +567,7 @@ RSpec.describe 'Builds' do
           'annotations' => { 'checksum' => 'SHA' }
         }
 
-        parsed_response = MultiJson.load(last_response.body)
+        parsed_response = Oj.load(last_response.body)
         expect(parsed_response['metadata']).to eq(expected_metadata)
       end
 
@@ -582,7 +582,7 @@ RSpec.describe 'Builds' do
         let(:api_call) { ->(user_headers) { patch "/v3/builds/#{build_model.guid}", { metadata: }.to_json, user_headers } }
 
         let(:expected_codes_and_responses) do
-          h = Hash.new(code: 403, errors: CF_NOT_AUTHORIZED)
+          h = Hash.new({ code: 403, errors: CF_NOT_AUTHORIZED }.freeze)
           h['admin'] = { code: 200 }
           h['org_auditor'] = { code: 404 }
           h['org_billing_manager'] = { code: 404 }
@@ -629,7 +629,7 @@ RSpec.describe 'Builds' do
           patch "/v3/builds/#{build_model.guid}", request.to_json, admin_headers
           expect(last_response.status).to eq(200), last_response.body
           expect(build_model.reload.state).to eq('STAGED')
-          parsed_response = MultiJson.load(last_response.body)
+          parsed_response = Oj.load(last_response.body)
           expect(parsed_response['state']).to eq('STAGED')
         end
 
@@ -637,7 +637,7 @@ RSpec.describe 'Builds' do
           context 'when a build was successfully completed' do
             it 'updates the state to STAGED' do
               patch "/v3/builds/#{build_model.guid}", request.to_json, build_state_updater_headers
-              parsed_response = MultiJson.load(last_response.body)
+              parsed_response = Oj.load(last_response.body)
               expect(last_response.status).to eq(200)
 
               expect(build_model.reload.state).to eq('STAGED')

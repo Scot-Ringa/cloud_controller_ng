@@ -94,6 +94,7 @@ module VCAP::CloudController
 
         it 'deletes associated droplets' do
           droplet = DropletModel.make(app:)
+          app.update(droplet_guid: droplet.guid)
 
           expect do
             app_delete.delete(app_dataset)
@@ -135,7 +136,7 @@ module VCAP::CloudController
         end
 
         it 'deletes associated labels' do
-          label = AppLabelModel.make(app:)
+          label = AppLabelModel.make(app: app, key_name: 'test', value: 'bommel')
 
           expect do
             app_delete.delete(app_dataset)
@@ -145,7 +146,7 @@ module VCAP::CloudController
         end
 
         it 'deletes associated annotations' do
-          annotation = AppAnnotationModel.make(app:)
+          annotation = AppAnnotationModel.make(app: app, key_name: 'test', value: 'bommel')
 
           expect do
             app_delete.delete(app_dataset)

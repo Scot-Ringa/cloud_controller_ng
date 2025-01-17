@@ -21,6 +21,8 @@ module VCAP::CloudController
             default_health_check_timeout: Integer,
             maximum_health_check_timeout: Integer,
 
+            optional(:temporary_enable_v2) => bool,
+
             uaa: {
               internal_url: String,
               optional(:ca_file) => String,
@@ -81,13 +83,11 @@ module VCAP::CloudController
 
             packages: {
               max_package_size: Integer,
+              max_valid_packages_stored: Integer,
               app_package_directory_key: String,
               fog_connection: Hash,
               fog_aws_storage_options: Hash,
-              fog_gcp_storage_options: Hash,
-              optional(:image_registry) => {
-                base_path: String
-              }
+              fog_gcp_storage_options: Hash
             },
 
             droplets: {
@@ -95,11 +95,6 @@ module VCAP::CloudController
               fog_connection: Hash,
               fog_aws_storage_options: Hash,
               fog_gcp_storage_options: Hash
-            },
-
-            optional(:registry_buddy) => {
-              host: String,
-              port: Integer
             },
 
             db_encryption_key: enum(String, NilClass),
@@ -156,6 +151,8 @@ module VCAP::CloudController
 
             perform_blob_cleanup: bool,
 
+            cpu_weight_min_memory: Integer,
+            cpu_weight_max_memory: Integer,
             default_app_memory: Integer,
             default_app_disk_in_mb: Integer,
             instance_file_descriptor_limit: Integer,
@@ -164,7 +161,14 @@ module VCAP::CloudController
             default_app_ssh_access: bool,
 
             jobs: {
-              global: { timeout_in_seconds: Integer },
+              global: {
+                timeout_in_seconds: Integer,
+                worker_sleep_delay_in_seconds: Integer
+              },
+              queues: {
+                optional(:cc_generic) => { timeout_in_seconds: Integer }
+              },
+              optional(:enable_dynamic_job_priorities) => bool,
               optional(:app_usage_events_cleanup) => { timeout_in_seconds: Integer },
               optional(:blobstore_delete) => { timeout_in_seconds: Integer },
               optional(:diego_sync) => { timeout_in_seconds: Integer },

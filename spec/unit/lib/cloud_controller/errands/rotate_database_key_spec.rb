@@ -35,6 +35,7 @@ module VCAP::CloudController
             'VCAP::CloudController::AppModel' => app,
             'VCAP::CloudController::PackageModel' => PackageModel.make(:docker, package_hash: Sham.guid, error: 'a-error', docker_image: 'image', docker_username: 'user'),
             'VCAP::CloudController::DropletModel' => DropletModel.make(:all_fields),
+            'VCAP::CloudController::CNBLifecycleDataModel' => CNBLifecycleDataModel.make(:all_fields),
             'VCAP::CloudController::BuildpackLifecycleDataModel' => BuildpackLifecycleDataModel.make(:all_fields),
             'VCAP::CloudController::BuildpackLifecycleBuildpackModel' => BuildpackLifecycleBuildpackModel.make(:all_fields),
             'VCAP::CloudController::TaskModel' => task,
@@ -114,15 +115,21 @@ module VCAP::CloudController
           [:encryption_key_label] + model_klass.all_encrypted_fields.map(&:values).flatten
         end
 
+        def nilable_columns(entity)
+          entity.values.except(*encrypted_columns(entity.class)).select { |k, v| entity.db_schema[k][:type] == :string && v.nil? }.keys
+        end
+
         shared_examples 'unencrypted fields' do
           it 'do not change their values' do
             entity = encrypted_models[klass]
-            vals = entity.reload.values.except(*encrypted_columns(entity.class))
-            expect(vals.values.all?(&:present?)).to be_truthy, "all fields of #{entity.class} need to have values"
+            nilable_string_columns = nilable_columns(entity)
+            vals = entity.reload.values.except(*encrypted_columns(entity.class), *nilable_string_columns)
+            vals.each { |k, v| expect(v).not_to be_nil, "field #{k} of #{entity.class} does not have a value" }
 
             RotateDatabaseKey.perform(batch_size: 1)
 
-            expect(entity.reload.values.except(*encrypted_columns(entity.class))).to eq(vals)
+            expect(entity.reload.values.except(*encrypted_columns(entity.class), *nilable_string_columns)).to eq(vals)
+            expect(entity.values.select { |k, _v| nilable_string_columns.include?(k) }.values).to be_all(&:nil?)
           end
         end
 
@@ -162,19 +169,19 @@ module VCAP::CloudController
 
         it 're-encrypts all encrypted fields with the new key for all rows' do
           expect(Encryptor).to receive(:encrypt).
-            with(JSON.dump(nil), historical_app_with_no_environment.salt).exactly(:twice)
+            with(Oj.dump(nil), historical_app_with_no_environment.salt).exactly(:twice)
 
           expect(Encryptor).to receive(:encrypt).
-            with(JSON.dump(env_vars), historical_app.salt).exactly(:twice)
+            with(Oj.dump(env_vars), historical_app.salt).exactly(:twice)
 
           expect(Encryptor).to receive(:encrypt).
-            with(JSON.dump(env_vars), app.salt).exactly(:twice)
+            with(Oj.dump(env_vars), app.salt).exactly(:twice)
 
           expect(Encryptor).to receive(:encrypt).
-            with(JSON.dump(credentials), service_binding.salt).exactly(:twice)
+            with(Oj.dump(credentials), service_binding.salt).exactly(:twice)
 
           expect(Encryptor).to receive(:encrypt).
-            with(JSON.dump(instance_credentials), service_instance.salt).exactly(:twice)
+            with(Oj.dump(instance_credentials), service_instance.salt).exactly(:twice)
 
           RotateDatabaseKey.perform(batch_size: 1)
         end
@@ -200,10 +207,10 @@ module VCAP::CloudController
 
         it 'does not re-encrypt values that are already encrypted with the new label' do
           expect(Encryptor).not_to receive(:encrypt).
-            with(JSON.dump(env_vars_2), app_new_key_label.salt)
+            with(Oj.dump(env_vars_2), app_new_key_label.salt)
 
           expect(Encryptor).not_to receive(:encrypt).
-            with(JSON.dump(credentials_2), service_binding_new_key_label.salt)
+            with(Oj.dump(credentials_2), service_binding_new_key_label.salt)
 
           RotateDatabaseKey.perform(batch_size: 1)
         end

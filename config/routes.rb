@@ -13,6 +13,7 @@ Rails.application.routes.draw do
   post '/apps/:guid/actions/start', to: 'apps_v3#start'
   post '/apps/:guid/actions/stop', to: 'apps_v3#stop'
   post '/apps/:guid/actions/restart', to: 'apps_v3#restart'
+  post '/apps/:guid/actions/clear_buildpack_cache', to: 'apps_v3#clear_buildpack_cache'
   get '/apps/:guid/env', to: 'apps_v3#show_env'
   get '/apps/:guid/permissions', to: 'apps_v3#show_permissions'
   get '/apps/:guid/builds', to: 'apps_v3#builds'
@@ -86,6 +87,7 @@ Rails.application.routes.draw do
   get '/deployments/', to: 'deployments#index'
   get '/deployments/:guid', to: 'deployments#show'
   post '/deployments/:guid/actions/cancel', to: 'deployments#cancel'
+  post '/deployments/:guid/actions/continue', to: 'deployments#continue'
 
   # domains
   post '/domains', to: 'domains#create'

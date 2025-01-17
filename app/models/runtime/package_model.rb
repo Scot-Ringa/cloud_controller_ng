@@ -30,6 +30,18 @@ module VCAP::CloudController
 
     set_field_as_encrypted :docker_password, salt: :docker_password_salt, column: :encrypted_docker_password
 
+    def after_create
+      super
+      BitsExpiration.new.expire_packages!(app) if ready?
+    end
+
+    def after_update
+      super
+      return unless column_changed?(:state)
+
+      BitsExpiration.new.expire_packages!(app) if ready? || failed?
+    end
+
     def validate
       validates_max_length 5_000, :docker_password, message: 'can be up to 5,000 characters', allow_nil: true
       validates_includes PACKAGE_STATES, :state, allow_missing: true
@@ -38,19 +50,6 @@ module VCAP::CloudController
 
     def image
       docker_image
-    end
-
-    def bits_image_reference(digest: false)
-      config = VCAP::CloudController::Config.config
-      raise 'Package Registry is not configured' unless config.package_image_registry_configured?
-      raise 'Package type must be bits' unless bits?
-
-      package_registry_base_path = config.get(:packages, :image_registry, :base_path)
-
-      reference = "#{package_registry_base_path}/#{guid}"
-      reference += "@sha256:#{sha256_checksum}" if digest
-
-      reference
     end
 
     def bits?

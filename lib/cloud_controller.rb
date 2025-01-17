@@ -1,7 +1,7 @@
 require 'sinatra'
 require 'sequel'
 require 'thin'
-require 'multi_json'
+require 'oj'
 require 'delayed_job'
 
 require 'allowy'
@@ -12,9 +12,6 @@ module VCAP; end
 
 require 'sinatra/vcap'
 require File.expand_path('../config/environment', __dir__)
-
-require 'yajl'
-require 'yajl/json_gem'
 
 Sequel.default_timezone = :utc
 ActiveSupport::JSON::Encoding.time_precision = 0
@@ -77,7 +74,6 @@ require 'cloud_controller/rule_validator'
 require 'cloud_controller/transport_rule_validator'
 require 'cloud_controller/icmp_rule_validator'
 require 'cloud_controller/controller_factory'
-require 'cloud_controller/egress_network_rules_presenter'
 require 'cloud_controller/organization_instance_usage_calculator'
 require 'cloud_controller/organization_quota_usage'
 require 'cloud_controller/url_secret_obfuscator'

@@ -23,19 +23,22 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
-      - uses: hmarr/debug-action@v2
+      - uses: hmarr/debug-action@v3
       - uses: actions/checkout@v4
       - name: Prepare setup
         run: cp -a .ruby-version docs/v3/.ruby-version
       - uses: ./.github/workflows/composite/setup
         with:
           WORKING_DIRECTORY: docs/v3
+      - name: Render V2 docs
+        working-directory: docs/v2
+        run: ./render.sh
       - name: Run docs tests
         run: |
           bundle config set --local without 'development'
           bundle install
           bundle exec rake check_doc_links
-      - uses: ravsamhq/notify-slack-action@v1.1
+      - uses: ravsamhq/notify-slack-action@v2
         if: github.event_name == 'push'
         with:
           status: ${{ job.status }}

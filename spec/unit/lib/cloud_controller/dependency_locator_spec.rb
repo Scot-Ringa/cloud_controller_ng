@@ -155,7 +155,7 @@ RSpec.describe CloudController::DependencyLocator do
     end
 
     it 'creates droplet_url_generator with the internal_service_hostname, ports, and diego flag' do
-      expect(VCAP::CloudController::Diego::Buildpack::DropletUrlGenerator).to receive(:new).with(
+      expect(VCAP::CloudController::Diego::DropletUrlGenerator).to receive(:new).with(
         internal_service_hostname: 'internal.service.hostname',
         external_port: nil,
         tls_port: 8283,
@@ -172,7 +172,7 @@ RSpec.describe CloudController::DependencyLocator do
     it { is_expected.to be_a(VCAP::CloudController::Repositories::AppEventRepository) }
 
     it 'memoizes the instance' do
-      expect(locator.app_event_repository).to eq(locator.app_event_repository)
+      expect(subject).to eq(locator.app_event_repository)
     end
   end
 
@@ -484,6 +484,37 @@ RSpec.describe CloudController::DependencyLocator do
 
       expect(locator.statsd_client).to eq(expected_client)
     end
+
+    it 'returns the null statsd client if enable_statsd_metrics is set to false' do
+      TestConfig.override(
+        enable_statsd_metrics: false
+      )
+
+      expected_client = double(CloudController::NullStatsdClient)
+
+      allow(CloudController::NullStatsdClient).to receive(:new).
+        and_return(expected_client)
+
+      expect(locator.statsd_client).to eq(expected_client)
+    end
+
+    it 'returns the statsd client for other than api vms' do
+      host = 'test-host'
+      port = 1234
+      TestConfig.context = :deployment_updater
+      TestConfig.override(
+        statsd_host: host,
+        statsd_port: port,
+        enable_statsd_metrics: nil
+      )
+
+      expected_client = double(Statsd)
+
+      allow(Statsd).to receive(:new).with(host, port).
+        and_return(expected_client)
+
+      expect(locator.statsd_client).to eq(expected_client)
+    end
   end
 
   describe '#bbs_stager_client' do
@@ -535,6 +566,48 @@ RSpec.describe CloudController::DependencyLocator do
     it 'uses diego' do
       expect(VCAP::CloudController::Diego::BbsTaskClient).to receive(:new).with(config, diego_client)
       locator.bbs_task_client
+    end
+  end
+
+  describe 'uaa_shadow_user_creation_client' do
+    before do
+      TestConfig.override(
+        uaa: {
+          internal_url: 'https:/uaa.local',
+          ca_file: '/var/vcap/uaa.cert',
+          clients: [
+            {
+              'name' => 'cloud_controller_shadow_user_creation',
+              'id' => 'shadow_user_creation_client_id',
+              'secret' => 'shadow_user_creation_client_secret'
+            }
+          ]
+        }
+      )
+    end
+
+    it 'creates a new UAA client' do
+      client = locator.uaa_shadow_user_creation_client
+      expect(client).to be_an_instance_of(VCAP::CloudController::UaaClient)
+      expect(client.uaa_target).to eq('https:/uaa.local')
+      expect(client.ca_file).to eq('/var/vcap/uaa.cert')
+      expect(client.client_id).to eq('shadow_user_creation_client_id')
+      expect(client.secret).to eq('shadow_user_creation_client_secret')
+    end
+
+    context 'when the client does not exist in config' do
+      before do
+        TestConfig.override(
+          uaa: {
+            internal_url: 'https:/uaa.local',
+            ca_file: '/var/vcap/uaa.cert'
+          }
+        )
+      end
+
+      it 'returns nil' do
+        expect(locator.uaa_shadow_user_creation_client).to be_nil
+      end
     end
   end
 end

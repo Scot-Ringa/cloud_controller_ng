@@ -35,17 +35,18 @@ class BuildsController < ApplicationController
   end
 
   def create
-    message = BuildCreateMessage.new(JSON.parse(request.body))
+    message = BuildCreateMessage.new(Oj.load(request.body))
     unprocessable!(message.errors.full_messages) unless message.valid?
 
     package = PackageModel.where(guid: message.package_guid).
-              eager(:app, :space, space: :organization, app: :buildpack_lifecycle_data).first
+              eager(:app, :space, space: :organization, app: %i[buildpack_lifecycle_data cnb_lifecycle_data]).first
     unprocessable_package! unless package &&
                                   permission_queryer.can_manage_apps_in_active_space?(package.space.id) && permission_queryer.is_space_active?(package.space.id)
 
     FeatureFlag.raise_unless_enabled!(:diego_docker) if package.type == PackageModel::DOCKER_TYPE
 
     lifecycle = LifecycleProvider.provide(package, message)
+    FeatureFlag.raise_unless_enabled!(:diego_cnb) if lifecycle.type == VCAP::CloudController::Lifecycles::CNB
     unprocessable!(lifecycle.errors.full_messages) unless lifecycle.valid?
 
     build = BuildCreate.new.create_and_stage(package: package, lifecycle: lifecycle, metadata: message.metadata)

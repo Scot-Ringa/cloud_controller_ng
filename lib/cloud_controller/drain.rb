@@ -1,3 +1,5 @@
+# This class is used in capi-release (e.g. https://github.com/cloudfoundry/capi-release/blob/b817791b0f4d8780304cef148f1aeb3f2a944af8/jobs/cloud_controller_ng/templates/shutdown_drain.rb.erb#L8)
+
 require 'logger'
 require 'fileutils'
 
@@ -36,6 +38,23 @@ module VCAP
 
         # Wait some additional time for cloud controller to be terminated; otherwise write an error log message.
         log_shutdown_error(pid, process_name) unless wait_for_shutdown(pid, process_name, CCNG_FINAL_TIMEOUT)
+      end
+
+      def shutdown_delayed_worker(pid_path, timeout=15)
+        pid = File.read(pid_path).to_i
+        process_name = File.basename(pid_path, '.pid')
+
+        # Initiate shutdown.
+        send_signal('TERM', pid, process_name)
+
+        # Wait some additional time for delayed worker to be terminated; otherwise write an error log message.
+        log_shutdown_error(pid, process_name) unless wait_for_shutdown(pid, process_name, timeout)
+
+        # force shutdown
+        return if terminated?(pid, process_name)
+
+        log_info("Forcefully shutting down process '#{process_name}' with pid '#{pid}'")
+        send_signal('KILL', pid, process_name)
       end
 
       private

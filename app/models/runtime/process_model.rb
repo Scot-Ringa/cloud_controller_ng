@@ -104,16 +104,9 @@ module VCAP::CloudController
           select_all(:processes)
       end
 
-      def kpack_type
-        inner_join(KpackLifecycleDataModel.table_name, app_guid: :app_guid).
-          select_all(:processes)
-      end
-
       def non_docker_type
         inner_join(BuildpackLifecycleDataModel.table_name, app_guid: :app_guid).
-          select_all(:processes).
-          union(inner_join(KpackLifecycleDataModel.table_name, app_guid: :app_guid).
-            select_all(:processes))
+          select_all(:processes)
       end
     end
 
@@ -448,6 +441,8 @@ module VCAP::CloudController
 
     delegate :docker?, to: :app
 
+    delegate :cnb?, to: :app
+
     def database_uri
       service_binding_uris = service_bindings.map do |binding|
         binding.credentials['uri'] if binding.credentials.present?
@@ -500,6 +495,7 @@ module VCAP::CloudController
 
     def active?
       return false if docker? && !FeatureFlag.enabled?(:diego_docker)
+      return false if cnb? && !FeatureFlag.enabled?(:diego_cnb)
 
       true
     end
@@ -532,7 +528,7 @@ module VCAP::CloudController
 
     def to_hash(opts={})
       opts[:redact] = (%w[environment_json system_env_json] unless VCAP::CloudController::Security::AccessContext.new.can?(:read_env, self))
-      super(opts)
+      super
     end
 
     def web?

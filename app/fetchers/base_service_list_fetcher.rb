@@ -58,13 +58,12 @@ module VCAP::CloudController
                     # A single sub-query does not need to be UNIONed (i.e. unauthenticated user retrieving public plans)
                     datasets[0]
                   else
-                    datasets.reduce do |ds1, ds2|
+                    distinct_union(datasets.reduce do |ds1, ds2|
                       ds1.union(ds2, all: true, from_self: false)
-                    end.from_self(alias: klass.table_name)
+                    end.from_self(alias: klass.table_name))
                   end
 
-        # Select DISTINCT entries and eager load associations.
-        dataset.distinct.eager(eager_loaded_associations)
+        dataset.eager(eager_loaded_associations)
       end
 
       def readable_by_plan_org(dataset, readable_orgs_query)
@@ -144,20 +143,25 @@ module VCAP::CloudController
           dataset = dataset.where { Sequel[:service_brokers][:name] =~ message.service_broker_names }
         end
 
-        super(message, dataset, klass)
+        super
       end
 
-      def join_service_plans(dataset)
-        dataset
+      def join_service_plans(_dataset)
+        raise 'method must be implemented in subclass'
       end
 
-      def join_services(dataset)
-        dataset
+      def join_services(_dataset)
+        raise 'method must be implemented in subclass'
+      end
+
+      def distinct_union(_dataset)
+        raise 'method must be implemented in subclass'
       end
 
       def join_plan_org_visibilities(dataset)
         dataset = join_service_plans(dataset)
-        join(dataset, :inner, :service_plan_visibilities, service_plan_id: Sequel[:service_plans][:id])
+        dataset = join(dataset, :inner, :service_plan_visibilities, service_plan_id: Sequel[:service_plans][:id])
+        distinct(dataset) # service plans can have multiple visibilities
       end
 
       def join_service_brokers(dataset)
@@ -182,12 +186,14 @@ module VCAP::CloudController
 
       def join_plan_spaces(dataset)
         dataset = join_plan_orgs(dataset)
-        join(dataset, :inner, Sequel[:spaces].as(:plan_spaces), organization_id: Sequel[:plan_orgs][:id])
+        dataset = join(dataset, :inner, Sequel[:spaces].as(:plan_spaces), organization_id: Sequel[:plan_orgs][:id])
+        distinct(dataset) # organizations can have multiple spaces
       end
 
       def join_service_instances(dataset)
         dataset = join_service_plans(dataset)
-        join(dataset, :inner, :service_instances, service_plan_id: Sequel[:service_plans][:id])
+        dataset = join(dataset, :inner, :service_instances, service_plan_id: Sequel[:service_plans][:id])
+        distinct(dataset) # service plans can have multiple instances
       end
 
       def join(dataset, type, table, on)
@@ -195,6 +201,10 @@ module VCAP::CloudController
           return dataset if j.table_expr == table
         end
         dataset.join_table(type, table, on)
+      end
+
+      def distinct(dataset)
+        dataset.distinct(Sequel.qualify(dataset.model.table_name, :id))
       end
     end
   end

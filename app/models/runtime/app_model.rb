@@ -54,11 +54,17 @@ module VCAP::CloudController
                key: :app_guid,
                primary_key: :guid
 
+    one_to_one :cnb_lifecycle_data,
+               class: 'VCAP::CloudController::CNBLifecycleDataModel',
+               key: :app_guid,
+               primary_key: :guid
+
     set_field_as_encrypted :environment_variables, column: :encrypted_environment_variables
     serializes_via_json :environment_variables
 
     add_association_dependencies buildpack_lifecycle_data: :destroy
     add_association_dependencies kpack_lifecycle_data: :destroy
+    add_association_dependencies cnb_lifecycle_data: :destroy
     add_association_dependencies labels: :destroy
     add_association_dependencies annotations: :destroy
 
@@ -68,6 +74,20 @@ module VCAP::CloudController
 
     def after_initialize
       self.enable_ssh = Config.config.get(:default_app_ssh_access) if enable_ssh.nil?
+    end
+
+    def around_save
+      yield
+    rescue Sequel::UniqueConstraintViolation => e
+      raise e unless e.message.include?('apps_v3_space_guid_name_index')
+
+      errors.add(%i[space_guid name], :unique)
+      raise validation_failed_error
+    rescue Sequel::ForeignKeyConstraintViolation => e
+      raise e unless e.message.include?('fk_apps_droplet_guid')
+
+      errors.add(:droplet, :presence)
+      raise validation_failed_error
     end
 
     def validate
@@ -82,13 +102,14 @@ module VCAP::CloudController
 
     def lifecycle_type
       return BuildpackLifecycleDataModel::LIFECYCLE_TYPE if buildpack_lifecycle_data
+      return CNBLifecycleDataModel::LIFECYCLE_TYPE if cnb_lifecycle_data
 
       DockerLifecycleDataModel::LIFECYCLE_TYPE
     end
 
     def lifecycle_data
       return buildpack_lifecycle_data if buildpack_lifecycle_data
-      return kpack_lifecycle_data if kpack_lifecycle_data
+      return cnb_lifecycle_data if cnb_lifecycle_data
 
       DockerLifecycleDataModel.new
     end
@@ -116,12 +137,16 @@ module VCAP::CloudController
       lifecycle_type == BuildpackLifecycleDataModel::LIFECYCLE_TYPE
     end
 
+    def cnb?
+      lifecycle_type == CNBLifecycleDataModel::LIFECYCLE_TYPE
+    end
+
     def stopped?
       desired_state == ProcessModel::STOPPED
     end
 
     def deploying?
-      deployments_dataset.where(state: DeploymentModel::DEPLOYING_STATE).any?
+      deployments_dataset.where(state: DeploymentModel::PROGRESSING_STATES).any?
     end
 
     def self.user_visibility_filter(user)

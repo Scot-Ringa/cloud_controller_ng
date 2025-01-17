@@ -4,7 +4,11 @@ require 'cloud_controller/metrics/prometheus_updater'
 module VCAP::CloudController::Metrics
   RSpec.describe PrometheusUpdater do
     let(:updater) { PrometheusUpdater.new(prom_client) }
-    let(:prom_client) { Prometheus::Client::Registry.new }
+    let(:tmpdir) { Dir.mktmpdir }
+    let(:prom_client) do
+      Prometheus::Client.config.data_store = Prometheus::Client::DataStores::DirectFileStore.new(dir: tmpdir)
+      Prometheus::Client::Registry.new
+    end
 
     describe 'Prometheus creation guards work correctly' do
       # This might look to be a duplicate of 'records the current number of deployments that are DEPLOYING'
@@ -69,6 +73,24 @@ module VCAP::CloudController::Metrics
         updater.update_job_queue_length(pending_job_count_by_queue)
 
         metric = prom_client.get :cc_job_queues_length_total
+        expect(metric.get(labels: { queue: 'cc_local' })).to eq 5
+        expect(metric.get(labels: { queue: 'cc_generic' })).to eq 6
+      end
+    end
+
+    describe '#update_job_queue_load' do
+      it 'records the load of the delayed job queues and total' do
+        expected_local_load   = 5
+        expected_generic_load = 6
+
+        pending_job_load_by_queue = {
+          cc_local: expected_local_load,
+          cc_generic: expected_generic_load
+        }
+
+        updater.update_job_queue_load(pending_job_load_by_queue)
+
+        metric = prom_client.get :cc_job_queues_load_total
         expect(metric.get(labels: { queue: 'cc_local' })).to eq 5
         expect(metric.get(labels: { queue: 'cc_generic' })).to eq 6
       end

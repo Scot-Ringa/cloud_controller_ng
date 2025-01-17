@@ -145,6 +145,34 @@ module VCAP::CloudController
           end
         end
 
+        context 'when comma-delimited destinations are enabled' do
+          before do
+            TestConfig.config[:security_groups][:enable_comma_delimited_destinations] = true
+          end
+
+          context 'when rules are valid' do
+            let(:rules) do
+              [
+                {
+                  protocol: 'tcp',
+                  destination: '10.10.10.0/24,1.0.0.0-1.0.0.200',
+                  ports: '443,80,8080'
+                },
+                {
+                  protocol: 'icmp',
+                  destination: '10.10.10.0/24,1.1.1.1',
+                  type: 8,
+                  code: 0
+                }
+              ]
+            end
+
+            it 'is valid' do
+              expect(subject).to be_valid
+            end
+          end
+        end
+
         context 'when rules are invalid' do
           let(:rules) do
             [
@@ -159,6 +187,56 @@ module VCAP::CloudController
 
           it 'is invalid' do
             expect(subject).not_to be_valid
+          end
+        end
+
+        context 'when the rule contains leading zeros' do
+          context 'in a CIDR' do
+            let(:rules) do
+              [
+                {
+                  protocol: 'tcp',
+                  destination: '010.000.0.0/24',
+                  ports: '443,80,8080'
+                }
+              ]
+            end
+
+            it 'is invalid' do
+              expect(subject).not_to be_valid
+            end
+          end
+
+          context 'in a range' do
+            let(:rules) do
+              [
+                {
+                  protocol: 'tcp',
+                  destination: '1.0.0.000-1.0.0.200',
+                  ports: '443,80,8080'
+                }
+              ]
+            end
+
+            it 'is invalid' do
+              expect(subject).not_to be_valid
+            end
+          end
+
+          context 'in an IP' do
+            let(:rules) do
+              [
+                {
+                  protocol: 'tcp',
+                  destination: '010.000.000.053',
+                  ports: '443,80,8080'
+                }
+              ]
+            end
+
+            it 'is invalid' do
+              expect(subject).not_to be_valid
+            end
           end
         end
       end

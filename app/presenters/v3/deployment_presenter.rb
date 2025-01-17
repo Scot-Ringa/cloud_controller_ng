@@ -14,10 +14,14 @@ module VCAP::CloudController::Presenters::V3
           value: deployment.status_value,
           reason: deployment.status_reason,
           details: {
-            last_successful_healthcheck: deployment.last_healthy_at
+            last_successful_healthcheck: deployment.last_healthy_at,
+            last_status_change: deployment.status_updated_at
           }
         },
         strategy: deployment.strategy,
+        options: {
+          max_in_flight: deployment.max_in_flight
+        },
         droplet: {
           guid: deployment.droplet_guid
         },
@@ -72,6 +76,13 @@ module VCAP::CloudController::Presenters::V3
         if deployment.cancelable?
           links[:cancel] = {
             href: url_builder.build_url(path: "/v3/deployments/#{deployment.guid}/actions/cancel"),
+            method: 'POST'
+          }
+        end
+      end.tap do |links|
+        if deployment.continuable?
+          links[:continue] = {
+            href: url_builder.build_url(path: "/v3/deployments/#{deployment.guid}/actions/continue"),
             method: 'POST'
           }
         end

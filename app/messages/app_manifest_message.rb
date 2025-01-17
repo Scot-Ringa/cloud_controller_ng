@@ -31,6 +31,7 @@ module VCAP::CloudController
       instances
       metadata
       memory
+      lifecycle
       name
       no_route
       processes
@@ -41,6 +42,7 @@ module VCAP::CloudController
       sidecars
       stack
       timeout
+      cnb_credentials
     ]
 
     HEALTH_CHECK_TYPE_MAPPING = { HealthCheckTypes::NONE => HealthCheckTypes::PROCESS }.freeze
@@ -69,6 +71,8 @@ module VCAP::CloudController
     validate :validate_app_update_message!
     validate :validate_buildpack_and_buildpacks_combination!
     validate :validate_docker_enabled!
+    validate :validate_cnb_enabled!
+    validate :validate_cnb_buildpacks!
     validate :validate_docker_buildpacks_combination!
     validate :validate_service_bindings_message!, if: ->(record) { record.requested?(:services) }
     validate :validate_env_update_message!,       if: ->(record) { record.requested?(:env) }
@@ -114,12 +118,19 @@ module VCAP::CloudController
     end
 
     def audit_hash
-      overrides = original_yaml['env'] ? { 'env' => Presenters::Censorship::PRIVATE_DATA_HIDDEN } : {}
-      original_yaml.merge(overrides)
+      override_env = original_yaml['env'] ? { 'env' => Presenters::Censorship::PRIVATE_DATA_HIDDEN } : {}
+      override_cnb = original_yaml['cnb-credentials'] ? { 'cnb-credentials' => Presenters::Censorship::PRIVATE_DATA_HIDDEN } : {}
+      original_yaml.merge(override_env).merge(override_cnb)
     end
 
     def app_lifecycle_hash
-      lifecycle_data = requested?(:docker) ? docker_lifecycle_data : buildpacks_lifecycle_data
+      lifecycle_data = if requested?(:lifecycle) && @lifecycle == 'cnb'
+                         cnb_lifecycle_data
+                       elsif requested?(:docker)
+                         docker_lifecycle_data
+                       else
+                         buildpacks_lifecycle_data
+                       end
 
       {
         lifecycle: lifecycle_data,
@@ -273,6 +284,26 @@ module VCAP::CloudController
       { type: Lifecycles::DOCKER }
     end
 
+    def cnb_lifecycle_data
+      return unless requested?(:buildpacks) || requested?(:buildpack) || requested?(:stack)
+
+      if requested?(:buildpacks)
+        requested_buildpacks = @buildpacks
+      elsif requested?(:buildpack)
+        requested_buildpacks = []
+        requested_buildpacks.push(@buildpack)
+      end
+
+      {
+        type: Lifecycles::CNB,
+        data: {
+          buildpacks: requested_buildpacks,
+          stack: @stack,
+          credentials: @cnb_credentials
+        }.compact
+      }
+    end
+
     def buildpacks_lifecycle_data
       return unless requested?(:buildpacks) || requested?(:buildpack) || requested?(:stack)
 
@@ -316,7 +347,7 @@ module VCAP::CloudController
     end
 
     def validate_byte_format(human_readable_byte_value, attribute_name, allow_unlimited: false)
-      byte_converter.convert_to_mb(human_readable_byte_value) unless allow_unlimited && (human_readable_byte_value.to_s == '-1' || human_readable_byte_value.to_s == '0')
+      byte_converter.convert_to_mb(human_readable_byte_value) unless allow_unlimited && ['-1', '0'].include?(human_readable_byte_value.to_s)
 
       nil
     rescue ByteConverter::InvalidUnitsError
@@ -446,6 +477,19 @@ module VCAP::CloudController
       FeatureFlag.raise_unless_enabled!(:diego_docker) if requested?(:docker)
     rescue StandardError => e
       errors.add(:base, e.message)
+    end
+
+    def validate_cnb_enabled!
+      FeatureFlag.raise_unless_enabled!(:diego_cnb) if requested?(:lifecycle) && @lifecycle == 'cnb'
+    rescue StandardError => e
+      errors.add(:base, e.message)
+    end
+
+    def validate_cnb_buildpacks!
+      return unless @lifecycle == 'cnb'
+      return if requested?(:lifecycle) && (requested?(:buildpack) || requested?(:buildpacks))
+
+      errors.add(:base, 'Buildpack(s) must be specified when using Cloud Native Buildpacks')
     end
 
     def validate_docker_buildpacks_combination!

@@ -14,6 +14,10 @@ class Application < Rails::Application
   config.middleware.delete Rack::ETag
   config.middleware.delete Rack::MethodOverride
 
+  Rails.autoloaders.main.ignore(Rails.root.join('app/**/*'))
+
+  config.active_support.cache_format_version = 7.0
+
   config.generators do |g|
     g.orm             false
     g.stylesheets     false

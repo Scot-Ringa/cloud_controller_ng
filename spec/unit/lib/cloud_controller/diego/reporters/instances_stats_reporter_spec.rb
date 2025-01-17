@@ -68,6 +68,7 @@ module VCAP::CloudController
           container_metric_batch = ::Logcache::ContainerMetricBatch.new
           container_metric_batch.instance_index = 0
           container_metric_batch.cpu_percentage = 3.92
+          container_metric_batch.cpu_entitlement_percentage = 80.0
           container_metric_batch.memory_bytes = 564
           container_metric_batch.disk_bytes = 5000
           container_metric_batch.memory_bytes_quota = 1234
@@ -97,6 +98,7 @@ module VCAP::CloudController
                 usage: {
                   time: formatted_current_time,
                   cpu: 0.0392,
+                  cpu_entitlement: 0.8,
                   mem: 564,
                   disk: 5000,
                   log_rate: 5
@@ -110,13 +112,148 @@ module VCAP::CloudController
         before do
           allow(bbs_instances_client).to receive_messages(lrp_instances: bbs_actual_lrps_response, desired_lrp_instance: bbs_desired_lrp_response)
           allow(log_cache_client).to receive(:container_metrics).
-            with(auth_token: 'my-token', source_guid: process.app.guid, logcache_filter: anything).
+            with(source_guid: process.app.guid, logcache_filter: anything).
             and_return(log_cache_response)
-          allow(VCAP::CloudController::SecurityContext).to receive(:auth_token).and_return('my-token')
         end
 
         it 'returns a map of stats & states per index in the correct units' do
           expect(instances_reporter.stats_for_app(process)).to eq([expected_stats_response, []])
+        end
+
+        context 'when there are multiple lrps with different states' do
+          let(:bbs_actual_lrps_response) { [actual_lrp_1, actual_lrp_2] }
+          let(:actual_lrp_1) do
+            make_actual_lrp(
+              instance_guid: 'instance-a', index: 0, state: ::Diego::ActualLRPState::RUNNING, error: 'some-details', since: two_days_ago_since_epoch_ns
+            ).tap do |actual_lrp|
+              actual_lrp.actual_lrp_net_info = lrp_1_net_info
+            end
+          end
+          let(:actual_lrp_2) do
+            make_actual_lrp(
+              instance_guid: 'instance-b', index: 1, state: ::Diego::ActualLRPState::CLAIMED, error: 'some-details', since: two_days_ago_since_epoch_ns
+            ).tap do |actual_lrp|
+              actual_lrp.actual_lrp_net_info = lrp_1_net_info
+            end
+          end
+
+          before do
+            allow(bbs_instances_client).to receive_messages(lrp_instances: bbs_actual_lrps_response, desired_lrp_instance: bbs_desired_lrp_response)
+          end
+
+          it 'shows all correct state for all instances' do
+            result, = instances_reporter.stats_for_app(process)
+            expect(result[0][:state]).to eq('RUNNING')
+            expect(result[1][:state]).to eq('STARTING')
+          end
+        end
+
+        context 'when a NoRunningInstances error is thrown for desired_lrp and it exists an actual_lrp' do
+          let(:error) { CloudController::Errors::NoRunningInstances.new('No running instances ruh roh') }
+          let(:expected_stopping_response) do
+            {
+              0 => {
+                state: 'STOPPING',
+                routable: is_routable,
+                stats: {
+                  name: process.name,
+                  uris: process.uris,
+                  host: 'lrp-host',
+                  port: 2222,
+                  net_info: lrp_1_net_info.to_h,
+                  uptime: two_days_in_seconds,
+                  mem_quota: nil,
+                  disk_quota: nil,
+                  log_rate_limit: nil,
+                  fds_quota: process.file_descriptors,
+                  usage: {}
+                },
+                details: 'some-details'
+              }
+            }
+          end
+          let(:bbs_actual_lrps_response) { [actual_lrp_1] }
+          let(:lrp_1_net_info) do
+            ::Diego::Bbs::Models::ActualLRPNetInfo.new(
+              address: 'lrp-host',
+              ports: [
+                ::Diego::Bbs::Models::PortMapping.new(container_port: DEFAULT_APP_PORT, host_port: 2222),
+                ::Diego::Bbs::Models::PortMapping.new(container_port: 1111)
+              ]
+            )
+          end
+          let(:actual_lrp_1) do
+            make_actual_lrp(
+              instance_guid: 'instance-a', index: 0, state: ::Diego::ActualLRPState::RUNNING, error: 'some-details', since: two_days_ago_since_epoch_ns
+            ).tap do |actual_lrp|
+              actual_lrp.actual_lrp_net_info = lrp_1_net_info
+            end
+          end
+
+          before do
+            allow(bbs_instances_client).to receive_messages(lrp_instances: bbs_actual_lrps_response)
+            allow(bbs_instances_client).to receive(:desired_lrp_instance).with(process).and_raise(error)
+          end
+
+          it 'shows all instances as "STOPPING" state' do
+            expect(instances_reporter.stats_for_app(process)).to eq([expected_stopping_response, []])
+          end
+
+          context 'when "app_instance_stopping_state" is false' do
+            before do
+              TestConfig.override(app_instance_stopping_state: false)
+            end
+
+            let(:expected_down_response) do
+              {
+                0 => {
+                  state: 'DOWN',
+                  routable: is_routable,
+                  stats: {
+                    name: process.name,
+                    uris: process.uris,
+                    host: 'lrp-host',
+                    port: 2222,
+                    net_info: lrp_1_net_info.to_h,
+                    uptime: two_days_in_seconds,
+                    mem_quota: nil,
+                    disk_quota: nil,
+                    log_rate_limit: nil,
+                    fds_quota: process.file_descriptors,
+                    usage: {}
+                  },
+                  details: 'some-details'
+                }
+              }
+            end
+
+            it 'shows all instances as "DOWN" state' do
+              expect(instances_reporter.stats_for_app(process)).to eq([expected_down_response, []])
+            end
+          end
+        end
+
+        context 'when a NoRunningInstances error is thrown for desired_lrp and it does not exist an actual_lrp' do
+          let(:error) { CloudController::Errors::NoRunningInstances.new('No running instances ruh roh') }
+          let(:expected_stats_response) do
+            {
+              0 => {
+                state: 'DOWN',
+                stats: {
+                  uptime: 0
+                }
+              }
+            }
+          end
+
+          before do
+            allow(bbs_instances_client).to receive(:lrp_instances).with(process).and_raise(error)
+            allow(bbs_instances_client).to receive(:desired_lrp_instance).with(process).and_raise(error)
+          end
+
+          it 'shows all instances as "DOWN" state' do
+            expect(instances_reporter.stats_for_app(process)).to eq([expected_stats_response, []])
+          end
         end
 
         context 'when process is not routable' do
@@ -148,7 +285,7 @@ module VCAP::CloudController
           expected_envelope = Loggregator::V2::Envelope.new(
             source_id: process.app.guid,
             gauge: Loggregator::V2::Gauge.new(metrics: {
-                                                'cpu' => Loggregator::V2::GaugeValue.new(unit: 'bytes', value: 10),
+                                                'cpu' => Loggregator::V2::GaugeValue.new(unit: 'percentage', value: 10),
                                                 'memory' => Loggregator::V2::GaugeValue.new(unit: 'bytes', value: 11),
                                                 'disk' => Loggregator::V2::GaugeValue.new(unit: 'bytes', value: 12)
                                               }),
@@ -160,7 +297,7 @@ module VCAP::CloudController
           other_envelope = Loggregator::V2::Envelope.new(
             source_id: process.app.guid,
             gauge: Loggregator::V2::Gauge.new(metrics: {
-                                                'cpu' => Loggregator::V2::GaugeValue.new(unit: 'bytes', value: 13),
+                                                'cpu' => Loggregator::V2::GaugeValue.new(unit: 'percentage', value: 13),
                                                 'memory' => Loggregator::V2::GaugeValue.new(unit: 'bytes', value: 10),
                                                 'disk' => Loggregator::V2::GaugeValue.new(unit: 'bytes', value: 10)
                                               }),
@@ -185,6 +322,7 @@ module VCAP::CloudController
             container_metric_batch = ::Logcache::ContainerMetricBatch.new
             container_metric_batch.instance_index = 0
             container_metric_batch.cpu_percentage = 3.92
+            container_metric_batch.cpu_entitlement_percentage = 80.0
             container_metric_batch.memory_bytes = 564
             container_metric_batch.disk_bytes = 5000
             container_metric_batch.log_rate = 5
@@ -197,7 +335,7 @@ module VCAP::CloudController
           it 'gets metrics for the process and does not filter on the source_id' do
             expect(log_cache_client).
               to receive(:container_metrics).
-              with(auth_token: 'my-token', source_guid: process.guid, logcache_filter: anything).
+              with(source_guid: process.guid, logcache_filter: anything).
               and_return(log_cache_response)
 
             expect(instances_reporter.stats_for_app(process)).to eq([expected_stats_response, []])
@@ -244,6 +382,7 @@ module VCAP::CloudController
             expect(result[0][:stats][:usage]).to eq({
                                                       time: formatted_current_time,
                                                       cpu: 0,
+                                                      cpu_entitlement: 0,
                                                       mem: 0,
                                                       disk: 0,
                                                       log_rate: 0
@@ -251,7 +390,34 @@ module VCAP::CloudController
           end
         end
 
-        context 'when a NoRunningInstances error is thrown' do
+        context 'when log cache returns a response without cpu_entitlement' do
+          let(:log_cache_response) do
+            container_metric_batch = ::Logcache::ContainerMetricBatch.new
+            container_metric_batch.instance_index = 0
+            container_metric_batch.cpu_percentage = 3.92
+            container_metric_batch.memory_bytes = 564
+            container_metric_batch.disk_bytes = 5_000
+            container_metric_batch.memory_bytes_quota = 1_234
+            container_metric_batch.disk_bytes_quota = 10_234
+            container_metric_batch.log_rate = 5
+            container_metric_batch.log_rate_limit = 10
+            [container_metric_batch]
+          end
+
+          it 'sets cpu_entitlement to nil while passing through other metrics' do
+            result, = instances_reporter.stats_for_app(process)
+            expect(result[0][:stats][:usage]).to eq({
+                                                      time: formatted_current_time,
+                                                      cpu: 0.0392,
+                                                      cpu_entitlement: nil,
+                                                      mem: 564,
+                                                      disk: 5000,
+                                                      log_rate: 5
+                                                    })
+          end
+        end
+
+        context 'when a NoRunningInstances error is thrown for actual_lrp and it exists a desired_lrp' do
           let(:error) { CloudController::Errors::NoRunningInstances.new('No running instances ruh roh') }
           let(:expected_stats_response) do
             {
@@ -263,9 +429,16 @@ module VCAP::CloudController
               }
             }
           end
+          let(:bbs_desired_lrp_response) do
+            ::Diego::Bbs::Models::DesiredLRP.new(
+              PlacementTags: placement_tags,
+              metric_tags: metrics_tags
+            )
+          end
 
           before do
             allow(bbs_instances_client).to receive(:lrp_instances).with(process).and_raise(error)
+            allow(bbs_instances_client).to receive_messages(desired_lrp_instance: bbs_desired_lrp_response)
           end
 
           it 'shows all instances as "DOWN"' do
@@ -348,6 +521,7 @@ module VCAP::CloudController
               expect(result[0][:stats][:usage]).to eq({
                                                         time: formatted_current_time,
                                                         cpu: 0,
+                                                        cpu_entitlement: 0,
                                                         mem: 0,
                                                         disk: 0,
                                                         log_rate: 0
@@ -385,7 +559,7 @@ module VCAP::CloudController
 
             before do
               allow(log_cache_client).to receive(:container_metrics).
-                with(auth_token: 'my-token', source_guid: process.app.guid, logcache_filter: anything).
+                with(source_guid: process.app.guid, logcache_filter: anything).
                 and_raise(error)
               allow(instances_reporter).to receive(:logger).and_return(mock_logger)
             end
@@ -434,7 +608,7 @@ module VCAP::CloudController
 
           before do
             allow(log_cache_client).to receive(:container_metrics).
-              with(auth_token: 'my-token', source_guid: process.app.guid, logcache_filter: anything).
+              with(source_guid: process.app.guid, logcache_filter: anything).
               and_raise(error)
             allow(instances_reporter).to receive(:logger).and_return(mock_logger)
           end

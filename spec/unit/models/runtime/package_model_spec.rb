@@ -2,6 +2,10 @@ require 'spec_helper'
 
 module VCAP::CloudController
   RSpec.describe PackageModel do
+    before do
+      allow_any_instance_of(BitsExpiration).to receive(:expire_packages!)
+    end
+
     describe 'validations' do
       it { is_expected.to validates_includes PackageModel::PACKAGE_STATES, :state, allow_missing: true }
 
@@ -18,46 +22,6 @@ module VCAP::CloudController
         expect(package).to be_valid
         expect(package2).not_to be_valid
         expect(package2.errors.full_messages).to include('docker_password can be up to 5,000 characters')
-      end
-    end
-
-    describe 'bits_image_reference' do
-      let(:package_sha256_checksum) { 'sha256-checksum' }
-      let(:type) { PackageModel::BITS_TYPE }
-      let(:package) { PackageModel.make(sha256_checksum: package_sha256_checksum, type: type) }
-
-      context 'when using a package registry' do
-        before do
-          TestConfig.override(packages: { image_registry: { base_path: 'hub.example.com/user' } })
-        end
-
-        it 'returns the image reference for the package' do
-          expect(package.bits_image_reference).to eq("hub.example.com/user/#{package.guid}")
-        end
-
-        context 'when digest: true is given' do
-          it 'returns the image reference for the package, including the digest' do
-            expect(package.bits_image_reference(digest: true)).to eq("hub.example.com/user/#{package.guid}@sha256:#{package_sha256_checksum}")
-          end
-        end
-
-        context 'when the package is type DOCKER' do
-          let(:type) { PackageModel::DOCKER_TYPE }
-
-          it 'raises an error' do
-            expect do
-              package.bits_image_reference
-            end.to raise_error('Package type must be bits')
-          end
-        end
-      end
-
-      context 'when not using a package registry' do
-        it 'raises an error' do
-          expect do
-            package.bits_image_reference
-          end.to raise_error('Package Registry is not configured')
-        end
       end
     end
 
@@ -117,8 +81,8 @@ module VCAP::CloudController
 
     describe 'metadata' do
       let(:package) { PackageModel.make }
-      let(:annotation) { PackageAnnotationModel.make(package:) }
-      let(:label) { PackageLabelModel.make(package:) }
+      let(:annotation) { PackageAnnotationModel.make(package: package, key_name: 'test1', value: 'bommel') }
+      let(:label) { PackageLabelModel.make(package: package, key_name: 'test1', value: 'bommel') }
 
       it 'can access its metadata' do
         expect(annotation.package.guid).to eq(package.guid)

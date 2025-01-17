@@ -23,7 +23,7 @@ RSpec.describe PackagesController, type: :controller do
       post :upload, params: params.merge(guid: package.guid)
 
       expect(response).to have_http_status(:ok)
-      expect(MultiJson.load(response.body)['guid']).to eq(package.guid)
+      expect(Oj.load(response.body)['guid']).to eq(package.guid)
       expect(package.reload.state).to eq(VCAP::CloudController::PackageModel::PENDING_STATE)
     end
 
@@ -35,7 +35,7 @@ RSpec.describe PackagesController, type: :controller do
       context 'with unsupported options' do
         let(:new_options) do
           {
-            cached_resources: JSON.dump([{ 'fn' => 'lol', 'sha1' => 'abc', 'size' => 2048 }])
+            cached_resources: Oj.dump([{ 'fn' => 'lol', 'sha1' => 'abc', 'size' => 2048 }])
           }
         end
 
@@ -75,7 +75,7 @@ RSpec.describe PackagesController, type: :controller do
             post :upload, params: params.merge(new_options), as: :json
 
             expect(response.status).to eq(200), response.body
-            expect(MultiJson.load(response.body)['guid']).to eq(package.guid)
+            expect(Oj.load(response.body)['guid']).to eq(package.guid)
             expect(package.reload.state).to eq(VCAP::CloudController::PackageModel::CREATED_STATE)
             expect(uploader).to have_received(:upload_async) do |args|
               expect(args[:message].resources).to contain_exactly({ fn: 'lol', sha1: 'abc', size: 2048, mode: '645' })
@@ -86,7 +86,7 @@ RSpec.describe PackagesController, type: :controller do
         context 'v2 resource format' do
           let(:new_options) do
             {
-              resources: JSON.dump([{ 'fn' => 'lol', 'sha1' => 'abc', 'size' => 2048, 'mode' => '645' }])
+              resources: Oj.dump([{ 'fn' => 'lol', 'sha1' => 'abc', 'size' => 2048, 'mode' => '645' }])
             }
           end
 
@@ -96,7 +96,7 @@ RSpec.describe PackagesController, type: :controller do
         context 'v3 resource format' do
           let(:new_options) do
             {
-              resources: JSON.dump([{ 'path' => 'lol', 'checksum' => { 'value' => 'abc' }, 'size_in_bytes' => 2048, 'mode' => '645' }])
+              resources: Oj.dump([{ 'path' => 'lol', 'checksum' => { 'value' => 'abc' }, 'size_in_bytes' => 2048, 'mode' => '645' }])
             }
           end
 
@@ -127,7 +127,7 @@ RSpec.describe PackagesController, type: :controller do
           post :upload, params: params.merge(guid: package.guid), as: :json
 
           expect(response).to have_http_status(:ok)
-          expect(MultiJson.load(response.body)['guid']).to eq(package.guid)
+          expect(Oj.load(response.body)['guid']).to eq(package.guid)
           expect(package.reload.state).to eq(VCAP::CloudController::PackageModel::PENDING_STATE)
         end
       end
@@ -287,19 +287,6 @@ RSpec.describe PackagesController, type: :controller do
       end
     end
 
-    context 'when the package is stored in an image registry' do
-      before do
-        TestConfig.override(packages: { image_registry: { base_path: 'hub.example.com/user' } })
-      end
-
-      it 'returns 422' do
-        get :download, params: { guid: package.guid }
-
-        expect(response).to have_http_status(:unprocessable_entity)
-        expect(response.body).to include('UnprocessableEntity')
-      end
-    end
-
     context 'when the package cannot be found' do
       it 'returns 404' do
         get :download, params: { guid: 'a-bogus-guid' }
@@ -365,7 +352,7 @@ RSpec.describe PackagesController, type: :controller do
       get :show, params: { guid: package.guid }
 
       expect(response).to have_http_status(:ok)
-      expect(MultiJson.load(response.body)['guid']).to eq(package.guid)
+      expect(Oj.load(response.body)['guid']).to eq(package.guid)
     end
 
     context 'when the package does not exist' do
@@ -1228,19 +1215,6 @@ RSpec.describe PackagesController, type: :controller do
         allow_user_read_access_for(user, spaces: [source_space, destination_space])
         allow_user_write_access(user, space: source_space)
         allow_user_write_access(user, space: destination_space)
-      end
-
-      context 'when the package is stored in an image registry' do
-        before do
-          TestConfig.override(packages: { image_registry: { base_path: 'hub.example.com/user' } })
-        end
-
-        it 'returns 422' do
-          post :create, params: { source_guid: original_package.guid }.merge(relationship_request_body), as: :json
-
-          expect(response).to have_http_status :unprocessable_entity
-          expect(response.body).to include('UnprocessableEntity')
-        end
       end
 
       it 'returns a 201 and the response' do

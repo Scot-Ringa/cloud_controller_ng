@@ -55,13 +55,17 @@ RSpec.describe 'v3 service credential bindings' do
     end
 
     context 'given a mixture of bindings' do
-      let(:now) { Time.now }
-      let(:instance) { VCAP::CloudController::ManagedServiceInstance.make(space:) }
+      let(:now) { Time.now.utc }
+      let(:instance) { VCAP::CloudController::ManagedServiceInstance.make(space: space, created_at: now - 1.second) }
       let(:other_instance) { VCAP::CloudController::ManagedServiceInstance.make(space: other_space) }
       let!(:key_binding) { VCAP::CloudController::ServiceKey.make(service_instance: instance, created_at: now - 4.seconds) }
       let!(:other_key_binding) { VCAP::CloudController::ServiceKey.make(service_instance: other_instance, created_at: now - 3.seconds) }
       let!(:app_binding) do
-        VCAP::CloudController::ServiceBinding.make(service_instance: instance, created_at: now - 2.seconds).tap do |binding|
+        VCAP::CloudController::ServiceBinding.make(
+          app: VCAP::CloudController::AppModel.make(space: space, created_at: now - 1.second),
+          service_instance: instance,
+          created_at: now - 2.seconds
+        ).tap do |binding|
           operate_on(binding)
         end
       end
@@ -111,8 +115,8 @@ RSpec.describe 'v3 service credential bindings' do
 
         let(:expected_codes_and_responses) do
           Hash.new(
-            code: 200,
-            response_objects: []
+            { code: 200,
+              response_objects: [] }.freeze
           ).tap do |h|
             h['admin'] = all_bindings
             h['admin_read_only'] = all_bindings
@@ -424,13 +428,25 @@ RSpec.describe 'v3 service credential bindings' do
           expect(guids).to contain_exactly(app_binding.app.guid, other_app_binding.app.guid)
         end
 
-        it 'can include `service_instance`' do
-          get '/v3/service_credential_bindings?include=service_instance', nil, admin_headers
-          expect(last_response).to have_status_code(200)
+        context 'when including `service_instance`' do
+          it 'includes service instances' do
+            get '/v3/service_credential_bindings?include=service_instance', nil, admin_headers
+            expect(last_response).to have_status_code(200)
 
-          expect(parsed_response['included']['service_instances']).to have(2).items
-          guids = parsed_response['included']['service_instances'].pluck('guid')
-          expect(guids).to contain_exactly(instance.guid, other_instance.guid)
+            expect(parsed_response['included']['service_instances']).to have(2).items
+            guids = parsed_response['included']['service_instances'].pluck('guid')
+            expect(guids).to contain_exactly(instance.guid, other_instance.guid)
+          end
+
+          it 'eagerly loads service_instances to efficiently access service_instance_guid - only relevant for service keys' do
+            expect(VCAP::CloudController::IncludeBindingServiceInstanceDecorator).to receive(:decorate) do |_, bindings|
+              expect(bindings).not_to be_empty
+              bindings.each { |b| expect(b.associations).to include(:service_instance) if b.instance_of?(VCAP::CloudController::ServiceKey) }
+            end
+
+            get '/v3/service_credential_bindings?include=service_instance', nil, admin_headers
+            expect(last_response).to have_status_code(200)
+          end
         end
 
         it 'returns a 400 for invalid includes' do
@@ -490,7 +506,7 @@ RSpec.describe 'v3 service credential bindings' do
       let(:api_call) { ->(user_headers) { get '/v3/service_credential_bindings/no-binding', nil, user_headers } }
 
       let(:expected_codes_and_responses) do
-        Hash.new(code: 404)
+        Hash.new({ code: 404 }.freeze)
       end
 
       it_behaves_like 'permissions for single object endpoint', ALL_PERMISSIONS
@@ -705,7 +721,7 @@ RSpec.describe 'v3 service credential bindings' do
     context 'permissions' do
       it_behaves_like 'permissions for single object endpoint', ALL_PERMISSIONS do
         let(:expected_codes_and_responses) do
-          h = Hash.new(code: 404, response_object: binding_credentials)
+          h = Hash.new({ code: 404, response_object: binding_credentials }.freeze)
           h['admin'] = h['admin_read_only'] = h['space_developer'] = { code: 200 }
           h
         end
@@ -956,7 +972,7 @@ RSpec.describe 'v3 service credential bindings' do
         it 'fails as can not be done' do
           api_call.call(admin_headers)
 
-          expect(last_response).to have_status_code(502)
+          expect(last_response).to have_status_code(400)
         end
       end
 
@@ -1080,7 +1096,7 @@ RSpec.describe 'v3 service credential bindings' do
         it 'fails as can not be done' do
           api_call.call(admin_headers)
 
-          expect(last_response).to have_status_code(502)
+          expect(last_response).to have_status_code(400)
         end
       end
 
@@ -1457,7 +1473,7 @@ RSpec.describe 'v3 service credential bindings' do
                 'user-id' => OpenSSL::Digest::SHA256.hexdigest(user.guid)
               }
             }
-            expect_any_instance_of(ActiveSupport::Logger).to receive(:info).with(JSON.generate(expected_json))
+            expect_any_instance_of(ActiveSupport::Logger).to receive(:info).with(Oj.dump(expected_json))
 
             api_call.call(space_dev_headers)
           end
@@ -1580,9 +1596,32 @@ RSpec.describe 'v3 service credential bindings' do
                 'user-id' => OpenSSL::Digest::SHA256.hexdigest(user.guid)
               }
             }
-            expect_any_instance_of(ActiveSupport::Logger).to receive(:info).with(JSON.generate(expected_json))
+            expect_any_instance_of(ActiveSupport::Logger).to receive(:info).with(Oj.dump(expected_json))
 
             api_call.call(space_dev_headers)
+          end
+        end
+
+        context 'when db is unavailable' do
+          before do
+            allow_any_instance_of(ServiceCredentialBindingsController).to receive(:enqueue_bind_job).and_raise(Sequel::DatabaseDisconnectError)
+          end
+
+          it 'raises the appropriate error' do
+            api_call.call(admin_headers)
+
+            expect(last_response).to have_status_code(503)
+            expect(parsed_response['errors']).to include(include({
+                                                                   'detail' => include('Database connection failure'),
+                                                                   'title' => 'CF-ServiceUnavailable',
+                                                                   'code' => 10_015
+                                                                 }))
+          end
+
+          it 'rolls back the transaction' do
+            api_call.call(admin_headers)
+
+            expect(service_instance.service_bindings.count).to eq(0)
           end
         end
       end
@@ -1795,6 +1834,29 @@ RSpec.describe 'v3 service credential bindings' do
         let(:audit) { VCAP::CloudController::Event.last }
 
         it_behaves_like 'service credential binding create endpoint', VCAP::CloudController::ServiceKey, false, 'service_key', 'service_keys'
+      end
+
+      context 'when db is unavailable' do
+        before do
+          allow_any_instance_of(ServiceCredentialBindingsController).to receive(:enqueue_bind_job).and_raise(Sequel::DatabaseDisconnectError)
+        end
+
+        it 'raises the appropriate error' do
+          api_call.call(admin_headers)
+
+          expect(last_response).to have_status_code(503)
+          expect(parsed_response['errors']).to include(include({
+                                                                 'detail' => include('Database connection failure'),
+                                                                 'title' => 'CF-ServiceUnavailable',
+                                                                 'code' => 10_015
+                                                               }))
+        end
+
+        it 'rolls back the transaction' do
+          api_call.call(admin_headers)
+
+          expect(service_instance.service_keys.count).to eq(0)
+        end
       end
     end
   end
@@ -2366,7 +2428,7 @@ RSpec.describe 'v3 service credential bindings' do
             end
 
             let(:expected_codes_and_responses) do
-              h = Hash.new(code: 404)
+              h = Hash.new({ code: 404 }.freeze)
               h['admin'] = { code: 202 }
               h['admin_read_only'] = h['global_auditor'] = { code: 403 }
               h

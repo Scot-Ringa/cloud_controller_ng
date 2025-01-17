@@ -3,6 +3,7 @@ require 'cloud_controller/diego/runner'
 require 'cloud_controller/diego/process_guid'
 require 'cloud_controller/diego/buildpack/lifecycle_protocol'
 require 'cloud_controller/diego/docker/lifecycle_protocol'
+require 'cloud_controller/diego/cnb/lifecycle_protocol'
 require 'cloud_controller/diego/egress_rules'
 
 module VCAP::CloudController
@@ -75,10 +76,6 @@ module VCAP::CloudController
 
     def dependency_locator
       CloudController::DependencyLocator.instance
-    end
-
-    def staging_timeout
-      @config.get(:staging, :timeout_in_seconds)
     end
   end
 end

@@ -37,6 +37,15 @@ module VCAP::CloudController
 
     delegate :space, to: :service_instance
 
+    def around_save
+      yield
+    rescue Sequel::UniqueConstraintViolation => e
+      raise e unless e.message.include?('svc_key_name_instance_id_index')
+
+      errors.add(%i[name service_instance_id], :unique)
+      raise validation_failed_error
+    end
+
     def validate
       validates_presence :name
       validates_presence :service_instance
@@ -60,7 +69,7 @@ module VCAP::CloudController
     end
 
     def credentials_with_serialization=(val)
-      self.credentials_without_serialization = MultiJson.dump(val)
+      self.credentials_without_serialization = Oj.dump(val)
     end
     alias_method 'credentials_without_serialization=', 'credentials='
     alias_method 'credentials=', 'credentials_with_serialization='
@@ -69,7 +78,7 @@ module VCAP::CloudController
       string = credentials_without_serialization
       return if string.blank?
 
-      MultiJson.load string
+      Oj.load(string)
     end
     alias_method 'credentials_without_serialization', 'credentials'
     alias_method 'credentials', 'credentials_with_serialization'

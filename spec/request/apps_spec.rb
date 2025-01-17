@@ -59,7 +59,8 @@ RSpec.describe 'Apps' do
             data: { buildpacks: [buildpack.name], stack: stack.name }
           },
           relationships: {
-            space: { data: { guid: space.guid } }
+            space: { data: { guid: space.guid } },
+            current_droplet: { data: { guid: nil } }
           },
           metadata: {
             labels: {
@@ -82,6 +83,7 @@ RSpec.describe 'Apps' do
             tasks: { href: %r{#{link_prefix}/v3/apps/#{UUID_REGEX}/tasks} },
             start: { href: %r{#{link_prefix}/v3/apps/#{UUID_REGEX}/actions/start}, method: 'POST' },
             stop: { href: %r{#{link_prefix}/v3/apps/#{UUID_REGEX}/actions/stop}, method: 'POST' },
+            clear_buildpack_cache: { href: %r{#{link_prefix}/v3/apps/#{UUID_REGEX}/actions/clear_buildpack_cache}, method: 'POST' },
             revisions: { href: %r{#{link_prefix}/v3/apps/#{UUID_REGEX}/revisions} },
             deployed_revisions: { href: %r{#{link_prefix}/v3/apps/#{UUID_REGEX}/revisions/deployed} },
             features: { href: %r{#{link_prefix}/v3/apps/#{UUID_REGEX}/features} }
@@ -90,7 +92,7 @@ RSpec.describe 'Apps' do
       end
 
       let(:expected_codes_and_responses) do
-        h = Hash.new(code: 403, errors: CF_NOT_AUTHORIZED)
+        h = Hash.new({ code: 403, errors: CF_NOT_AUTHORIZED }.freeze)
         h['org_billing_manager'] = { code: 422 }
         h['org_auditor'] = { code: 422 }
         h['no_role'] = { code: 422 }
@@ -136,7 +138,7 @@ RSpec.describe 'Apps' do
         post '/v3/apps', create_request.to_json, user_header
         expect(last_response.status).to eq(201)
 
-        parsed_response = MultiJson.load(last_response.body)
+        parsed_response = Oj.load(last_response.body)
         app_guid = parsed_response['guid']
 
         expect(VCAP::CloudController::AppModel.find(guid: app_guid)).to be
@@ -156,6 +158,11 @@ RSpec.describe 'Apps' do
               'space' => {
                 'data' => {
                   'guid' => space.guid
+                }
+              },
+              'current_droplet' => {
+                'data' => {
+                  'guid' => nil
                 }
               }
             },
@@ -182,6 +189,7 @@ RSpec.describe 'Apps' do
               'tasks' => { 'href' => "#{link_prefix}/v3/apps/#{app_guid}/tasks" },
               'start' => { 'href' => "#{link_prefix}/v3/apps/#{app_guid}/actions/start", 'method' => 'POST' },
               'stop' => { 'href' => "#{link_prefix}/v3/apps/#{app_guid}/actions/stop", 'method' => 'POST' },
+              'clear_buildpack_cache' => { 'href' => "#{link_prefix}/v3/apps/#{app_guid}/actions/clear_buildpack_cache", 'method' => 'POST' },
               'revisions' => { 'href' => "#{link_prefix}/v3/apps/#{app_guid}/revisions" },
               'deployed_revisions' => { 'href' => "#{link_prefix}/v3/apps/#{app_guid}/revisions/deployed" },
               'features' => { 'href' => "#{link_prefix}/v3/apps/#{app_guid}/features" }
@@ -208,7 +216,7 @@ RSpec.describe 'Apps' do
         post '/v3/apps', create_request.to_json, user_header
         expect(last_response.status).to eq(201)
 
-        parsed_response = MultiJson.load(last_response.body)
+        parsed_response = Oj.load(last_response.body)
         app_guid = parsed_response['guid']
         expect(VCAP::CloudController::AppModel.find(guid: app_guid)).not_to be_nil
         expect(VCAP::CloudController::ProcessModel.find(guid: app_guid)).not_to be_nil
@@ -225,7 +233,7 @@ RSpec.describe 'Apps' do
           Timecop.freeze do
             post '/v3/apps', create_request.to_json, user_header
 
-            parsed_response = MultiJson.load(last_response.body)
+            parsed_response = Oj.load(last_response.body)
             app_guid = parsed_response['guid']
 
             expected_json = {
@@ -278,6 +286,11 @@ RSpec.describe 'Apps' do
                 'data' => {
                   'guid' => space.guid
                 }
+              },
+              'current_droplet' => {
+                'data' => {
+                  'guid' => nil
+                }
               }
             },
             'created_at' => iso8601,
@@ -294,13 +307,14 @@ RSpec.describe 'Apps' do
               'tasks' => { 'href' => "#{link_prefix}/v3/apps/#{created_app.guid}/tasks" },
               'start' => { 'href' => "#{link_prefix}/v3/apps/#{created_app.guid}/actions/start", 'method' => 'POST' },
               'stop' => { 'href' => "#{link_prefix}/v3/apps/#{created_app.guid}/actions/stop", 'method' => 'POST' },
+              'clear_buildpack_cache' => { 'href' => "#{link_prefix}/v3/apps/#{created_app.guid}/actions/clear_buildpack_cache", 'method' => 'POST' },
               'revisions' => { 'href' => "#{link_prefix}/v3/apps/#{created_app.guid}/revisions" },
               'deployed_revisions' => { 'href' => "#{link_prefix}/v3/apps/#{created_app.guid}/revisions/deployed" },
               'features' => { 'href' => "#{link_prefix}/v3/apps/#{created_app.guid}/features" }
             }
           }
 
-          parsed_response = MultiJson.load(last_response.body)
+          parsed_response = Oj.load(last_response.body)
           expect(parsed_response).to be_a_response_like(expected_response)
 
           event = VCAP::CloudController::Event.last
@@ -342,7 +356,7 @@ RSpec.describe 'Apps' do
             post '/v3/apps', create_request.to_json, user_header
 
             expect(last_response.status).to eq(201)
-            parsed_response = MultiJson.load(last_response.body)
+            parsed_response = Oj.load(last_response.body)
             expect(parsed_response['lifecycle']['type']).to eq('buildpack')
           end
         end
@@ -374,7 +388,8 @@ RSpec.describe 'Apps' do
             data: { buildpacks: [], stack: app_model1.lifecycle_data.stack }
           },
           relationships: {
-            space: { data: { guid: space.guid } }
+            space: { data: { guid: space.guid } },
+            current_droplet: { data: { guid: nil } }
           },
           metadata: {
             labels: {},
@@ -391,6 +406,7 @@ RSpec.describe 'Apps' do
             tasks: { href: "#{link_prefix}/v3/apps/app1_guid/tasks" },
             start: { href: "#{link_prefix}/v3/apps/app1_guid/actions/start", method: 'POST' },
             stop: { href: "#{link_prefix}/v3/apps/app1_guid/actions/stop", method: 'POST' },
+            clear_buildpack_cache: { href: "#{link_prefix}/v3/apps/app1_guid/actions/clear_buildpack_cache", method: 'POST' },
             revisions: { href: "#{link_prefix}/v3/apps/app1_guid/revisions" },
             deployed_revisions: { href: "#{link_prefix}/v3/apps/app1_guid/revisions/deployed" },
             features: { href: "#{link_prefix}/v3/apps/app1_guid/features" }
@@ -410,7 +426,8 @@ RSpec.describe 'Apps' do
             data: { buildpacks: [], stack: app_model2.lifecycle_data.stack }
           },
           relationships: {
-            space: { data: { guid: space2.guid } }
+            space: { data: { guid: space2.guid } },
+            current_droplet: { data: { guid: nil } }
           },
           metadata: {
             labels: {},
@@ -427,6 +444,7 @@ RSpec.describe 'Apps' do
             tasks: { href: "#{link_prefix}/v3/apps/app2_guid/tasks" },
             start: { href: "#{link_prefix}/v3/apps/app2_guid/actions/start", method: 'POST' },
             stop: { href: "#{link_prefix}/v3/apps/app2_guid/actions/stop", method: 'POST' },
+            clear_buildpack_cache: { href: "#{link_prefix}/v3/apps/app2_guid/actions/clear_buildpack_cache", method: 'POST' },
             revisions: { href: "#{link_prefix}/v3/apps/app2_guid/revisions" },
             deployed_revisions: { href: "#{link_prefix}/v3/apps/app2_guid/revisions/deployed" },
             features: { href: "#{link_prefix}/v3/apps/app2_guid/features" }
@@ -435,7 +453,7 @@ RSpec.describe 'Apps' do
       end
 
       let(:expected_codes_and_responses) do
-        h = Hash.new(code: 200, response_objects: [app_model1_response_object, app_model2_response_object])
+        h = Hash.new({ code: 200, response_objects: [app_model1_response_object, app_model2_response_object] }.freeze)
 
         h['org_auditor'] = {
           code: 200,
@@ -537,7 +555,7 @@ RSpec.describe 'Apps' do
         get '/v3/apps?per_page=2&include=space', nil, user_header
         expect(last_response.status).to eq(200)
 
-        parsed_response = MultiJson.load(last_response.body)
+        parsed_response = Oj.load(last_response.body)
         expect(parsed_response).to be_a_response_like(
           {
             'pagination' => {
@@ -565,6 +583,11 @@ RSpec.describe 'Apps' do
                     'data' => {
                       'guid' => space.guid
                     }
+                  },
+                  'current_droplet' => {
+                    'data' => {
+                      'guid' => nil
+                    }
                   }
                 },
                 'created_at' => iso8601,
@@ -581,6 +604,7 @@ RSpec.describe 'Apps' do
                   'tasks' => { 'href' => "#{link_prefix}/v3/apps/#{app_model1.guid}/tasks" },
                   'start' => { 'href' => "#{link_prefix}/v3/apps/#{app_model1.guid}/actions/start", 'method' => 'POST' },
                   'stop' => { 'href' => "#{link_prefix}/v3/apps/#{app_model1.guid}/actions/stop", 'method' => 'POST' },
+                  'clear_buildpack_cache' => { 'href' => "#{link_prefix}/v3/apps/#{app_model1.guid}/actions/clear_buildpack_cache", 'method' => 'POST' },
                   'revisions' => { 'href' => "#{link_prefix}/v3/apps/#{app_model1.guid}/revisions" },
                   'deployed_revisions' => { 'href' => "#{link_prefix}/v3/apps/#{app_model1.guid}/revisions/deployed" },
                   'features' => { 'href' => "#{link_prefix}/v3/apps/#{app_model1.guid}/features" }
@@ -599,6 +623,11 @@ RSpec.describe 'Apps' do
                     'data' => {
                       'guid' => space.guid
                     }
+                  },
+                  'current_droplet' => {
+                    'data' => {
+                      'guid' => nil
+                    }
                   }
                 },
                 'created_at' => iso8601,
@@ -615,6 +644,7 @@ RSpec.describe 'Apps' do
                   'tasks' => { 'href' => "#{link_prefix}/v3/apps/#{app_model2.guid}/tasks" },
                   'start' => { 'href' => "#{link_prefix}/v3/apps/#{app_model2.guid}/actions/start", 'method' => 'POST' },
                   'stop' => { 'href' => "#{link_prefix}/v3/apps/#{app_model2.guid}/actions/stop", 'method' => 'POST' },
+                  'clear_buildpack_cache' => { 'href' => "#{link_prefix}/v3/apps/#{app_model2.guid}/actions/clear_buildpack_cache", 'method' => 'POST' },
                   'revisions' => { 'href' => "#{link_prefix}/v3/apps/#{app_model2.guid}/revisions" },
                   'deployed_revisions' => { 'href' => "#{link_prefix}/v3/apps/#{app_model2.guid}/revisions/deployed" },
                   'features' => { 'href' => "#{link_prefix}/v3/apps/#{app_model2.guid}/features" }
@@ -711,7 +741,7 @@ RSpec.describe 'Apps' do
           'previous' => nil
         }
 
-        parsed_response = MultiJson.load(last_response.body)
+        parsed_response = Oj.load(last_response.body)
 
         expect(last_response.status).to eq(200)
         expect(parsed_response['resources'].pluck('name')).to eq(%w[name1 name3])
@@ -734,7 +764,7 @@ RSpec.describe 'Apps' do
           'previous' => nil
         }
 
-        parsed_response = MultiJson.load(last_response.body)
+        parsed_response = Oj.load(last_response.body)
 
         expect(last_response.status).to eq(200)
         expect(parsed_response['resources'].pluck('name')).to eq(%w[name1 name2])
@@ -757,7 +787,7 @@ RSpec.describe 'Apps' do
           'previous' => nil
         }
 
-        parsed_response = MultiJson.load(last_response.body)
+        parsed_response = Oj.load(last_response.body)
 
         expect(last_response.status).to eq(200)
         expect(parsed_response['resources'].pluck('name')).to eq(%w[name1 name3])
@@ -780,7 +810,7 @@ RSpec.describe 'Apps' do
           'previous' => nil
         }
 
-        parsed_response = MultiJson.load(last_response.body)
+        parsed_response = Oj.load(last_response.body)
 
         expect(last_response.status).to eq(200)
         expect(parsed_response['resources'].pluck('name')).to eq(%w[name1 name3])
@@ -815,7 +845,7 @@ RSpec.describe 'Apps' do
           'previous' => nil
         }
 
-        parsed_response = MultiJson.load(last_response.body)
+        parsed_response = Oj.load(last_response.body)
 
         expect(last_response.status).to eq(200)
         expect(parsed_response['resources'].pluck('name')).to eq(%w[name1 name2])
@@ -850,7 +880,7 @@ RSpec.describe 'Apps' do
           'previous' => nil
         }
 
-        parsed_response = MultiJson.load(last_response.body)
+        parsed_response = Oj.load(last_response.body)
 
         expect(last_response.status).to eq(200)
         expect(parsed_response['resources'].pluck('name')).to eq(['name1'])
@@ -876,7 +906,7 @@ RSpec.describe 'Apps' do
           'previous' => nil
         }
 
-        parsed_response = MultiJson.load(last_response.body)
+        parsed_response = Oj.load(last_response.body)
 
         expect(last_response.status).to eq(200)
         expect(parsed_response['resources'].pluck('name')).to eq(%w[name1 name3])
@@ -902,7 +932,7 @@ RSpec.describe 'Apps' do
         # ASCENDING
         get '/v3/apps?order_by=name', nil, user_header
         expect(last_response.status).to eq(200)
-        parsed_response = MultiJson.load(last_response.body)
+        parsed_response = Oj.load(last_response.body)
         app_names = parsed_response['resources'].pluck('name')
         expect(app_names).to eq(ascending)
         expect(parsed_response['pagination']['first']['href']).to include("order_by=#{CGI.escape('+')}name")
@@ -910,7 +940,7 @@ RSpec.describe 'Apps' do
         # DESCENDING
         get '/v3/apps?order_by=-name', nil, user_header
         expect(last_response.status).to eq(200)
-        parsed_response = MultiJson.load(last_response.body)
+        parsed_response = Oj.load(last_response.body)
         app_names = parsed_response['resources'].pluck('name')
         expect(app_names).to eq(descending)
         expect(parsed_response['pagination']['first']['href']).to include('order_by=-name')
@@ -927,7 +957,7 @@ RSpec.describe 'Apps' do
         # ASCENDING
         get '/v3/apps?order_by=state', nil, user_header
         expect(last_response.status).to eq(200)
-        parsed_response = MultiJson.load(last_response.body)
+        parsed_response = Oj.load(last_response.body)
         app_states = parsed_response['resources'].pluck('state')
         expect(app_states).to eq(ascending)
         expect(parsed_response['pagination']['first']['href']).to include("order_by=#{CGI.escape('+')}state")
@@ -935,7 +965,7 @@ RSpec.describe 'Apps' do
         # DESCENDING
         get '/v3/apps?order_by=-state', nil, user_header
         expect(last_response.status).to eq(200)
-        parsed_response = MultiJson.load(last_response.body)
+        parsed_response = Oj.load(last_response.body)
         app_states = parsed_response['resources'].pluck('state')
         expect(app_states).to eq(descending)
         expect(parsed_response['pagination']['first']['href']).to include('order_by=-state')
@@ -955,7 +985,7 @@ RSpec.describe 'Apps' do
       it 'returns a 200 and the filtered apps for "in" label selector' do
         get '/v3/apps?label_selector=foo in (bar)', nil, admin_header
 
-        parsed_response = MultiJson.load(last_response.body)
+        parsed_response = Oj.load(last_response.body)
 
         expected_pagination = {
           'total_results' => 1,
@@ -974,7 +1004,7 @@ RSpec.describe 'Apps' do
       it 'returns a 200 and the filtered apps for "notin" label selector' do
         get '/v3/apps?label_selector=foo notin (bar)', nil, admin_header
 
-        parsed_response = MultiJson.load(last_response.body)
+        parsed_response = Oj.load(last_response.body)
 
         expected_pagination = {
           'total_results' => 1,
@@ -993,7 +1023,7 @@ RSpec.describe 'Apps' do
       it 'returns a 200 and the filtered apps for "=" label selector' do
         get '/v3/apps?label_selector=foo=bar', nil, admin_header
 
-        parsed_response = MultiJson.load(last_response.body)
+        parsed_response = Oj.load(last_response.body)
 
         expected_pagination = {
           'total_results' => 1,
@@ -1012,7 +1042,7 @@ RSpec.describe 'Apps' do
       it 'returns a 200 and the filtered apps for "==" label selector' do
         get '/v3/apps?label_selector=foo==bar', nil, admin_header
 
-        parsed_response = MultiJson.load(last_response.body)
+        parsed_response = Oj.load(last_response.body)
 
         expected_pagination = {
           'total_results' => 1,
@@ -1031,7 +1061,7 @@ RSpec.describe 'Apps' do
       it 'returns a 200 and the filtered apps for "!=" label selector' do
         get '/v3/apps?label_selector=foo!=bar', nil, admin_header
 
-        parsed_response = MultiJson.load(last_response.body)
+        parsed_response = Oj.load(last_response.body)
 
         expected_pagination = {
           'total_results' => 1,
@@ -1050,7 +1080,7 @@ RSpec.describe 'Apps' do
       it 'returns a 200 and the filtered apps for "==" label selector' do
         get '/v3/apps?label_selector=foo=funky,santa=claus', nil, admin_header
 
-        parsed_response = MultiJson.load(last_response.body)
+        parsed_response = Oj.load(last_response.body)
 
         expected_pagination = {
           'total_results' => 1,
@@ -1069,7 +1099,7 @@ RSpec.describe 'Apps' do
       it 'returns a 200 and the filtered apps for existence label selector' do
         get '/v3/apps?label_selector=santa', nil, admin_header
 
-        parsed_response = MultiJson.load(last_response.body)
+        parsed_response = Oj.load(last_response.body)
 
         expected_pagination = {
           'total_results' => 1,
@@ -1088,7 +1118,7 @@ RSpec.describe 'Apps' do
       it 'returns a 200 and the filtered apps for non-existence label selector' do
         get '/v3/apps?label_selector=!santa', nil, admin_header
 
-        parsed_response = MultiJson.load(last_response.body)
+        parsed_response = Oj.load(last_response.body)
 
         expected_pagination = {
           'total_results' => 1,
@@ -1121,7 +1151,7 @@ RSpec.describe 'Apps' do
       it 'returns a 200 and the correct app when querying with space guid' do
         get "/v3/apps?space_guids=#{space2.guid}&label_selector=foo==funky", nil, admin_header
 
-        parsed_response = MultiJson.load(last_response.body)
+        parsed_response = Oj.load(last_response.body)
 
         expected_pagination = {
           'total_results' => 1,
@@ -1140,7 +1170,7 @@ RSpec.describe 'Apps' do
       it 'returns a 200 and the correct app when querying with space guid' do
         get "/v3/apps?space_guids=#{space2.guid}&label_selector=fruit==strawberry&names=name2", nil, admin_header
 
-        parsed_response = MultiJson.load(last_response.body)
+        parsed_response = Oj.load(last_response.body)
 
         expected_pagination = {
           'total_results' => 1,
@@ -1179,7 +1209,7 @@ RSpec.describe 'Apps' do
         get '/v3/apps?per_page=2&include=space,space.organization', nil, admin_header
         expect(last_response.status).to eq(200)
 
-        parsed_response = MultiJson.load(last_response.body)
+        parsed_response = Oj.load(last_response.body)
 
         expect(parsed_response['included']['organizations'][0]).to be_a_response_like({
                                                                                         'guid' => org1.guid,
@@ -1242,8 +1272,24 @@ RSpec.describe 'Apps' do
 
       it 'does not include spaces if no one asks for them' do
         get '/v3/apps', nil, admin_header
-        parsed_response = MultiJson.load(last_response.body)
+        parsed_response = Oj.load(last_response.body)
         expect(parsed_response).not_to have_key('included')
+      end
+    end
+
+    context 'when including orgs' do
+      before do
+        VCAP::CloudController::AppModel.make
+      end
+
+      it 'eagerly loads spaces to efficiently access space.organization_id' do
+        expect(VCAP::CloudController::IncludeOrganizationDecorator).to receive(:decorate) do |_, resources|
+          expect(resources).not_to be_empty
+          resources.each { |r| expect(r.associations).to include(:space) }
+        end
+
+        get '/v3/apps?include=space.organization', nil, admin_header
+        expect(last_response).to have_status_code(200)
       end
     end
   end
@@ -1258,8 +1304,7 @@ RSpec.describe 'Apps' do
         guid: 'app1_guid',
         space: space,
         desired_state: 'STARTED',
-        environment_variables: { 'unicorn' => 'horn' },
-        droplet_guid: 'a-droplet-guid'
+        environment_variables: { 'unicorn' => 'horn' }
       )
     end
 
@@ -1287,7 +1332,8 @@ RSpec.describe 'Apps' do
             data: { buildpacks: [buildpack.name], stack: app_model.lifecycle_data.stack }
           },
           relationships: {
-            space: { data: { guid: space.guid } }
+            space: { data: { guid: space.guid } },
+            current_droplet: { data: { guid: app_model.droplet_guid } }
           },
           metadata: {
             labels: {},
@@ -1304,6 +1350,7 @@ RSpec.describe 'Apps' do
             tasks: { href: "#{link_prefix}/v3/apps/app1_guid/tasks" },
             start: { href: "#{link_prefix}/v3/apps/app1_guid/actions/start", method: 'POST' },
             stop: { href: "#{link_prefix}/v3/apps/app1_guid/actions/stop", method: 'POST' },
+            clear_buildpack_cache: { href: "#{link_prefix}/v3/apps/app1_guid/actions/clear_buildpack_cache", method: 'POST' },
             revisions: { href: "#{link_prefix}/v3/apps/app1_guid/revisions" },
             deployed_revisions: { href: "#{link_prefix}/v3/apps/app1_guid/revisions/deployed" },
             features: { href: "#{link_prefix}/v3/apps/app1_guid/features" }
@@ -1312,7 +1359,7 @@ RSpec.describe 'Apps' do
       end
 
       let(:expected_codes_and_responses) do
-        h = Hash.new(code: 200, response_object: app_model_response_object)
+        h = Hash.new({ code: 200, response_object: app_model_response_object }.freeze)
         h['org_auditor'] = { code: 404 }
         h['org_billing_manager'] = { code: 404 }
         h['no_role'] = { code: 404 }
@@ -1331,7 +1378,7 @@ RSpec.describe 'Apps' do
         get "/v3/apps/#{app_model.guid}", nil, user_header
         expect(last_response.status).to eq(200)
 
-        parsed_response = MultiJson.load(last_response.body)
+        parsed_response = Oj.load(last_response.body)
         expect(parsed_response).to be_a_response_like(
           {
             'name' => 'my_app',
@@ -1352,6 +1399,11 @@ RSpec.describe 'Apps' do
                 'data' => {
                   'guid' => space.guid
                 }
+              },
+              'current_droplet' => {
+                'data' => {
+                  'guid' => app_model.droplet_guid
+                }
               }
             },
             'links' => {
@@ -1365,6 +1417,7 @@ RSpec.describe 'Apps' do
               'tasks' => { 'href' => "#{link_prefix}/v3/apps/#{app_model.guid}/tasks" },
               'start' => { 'href' => "#{link_prefix}/v3/apps/#{app_model.guid}/actions/start", 'method' => 'POST' },
               'stop' => { 'href' => "#{link_prefix}/v3/apps/#{app_model.guid}/actions/stop", 'method' => 'POST' },
+              'clear_buildpack_cache' => { 'href' => "#{link_prefix}/v3/apps/#{app_model.guid}/actions/clear_buildpack_cache", 'method' => 'POST' },
               'revisions' => { 'href' => "#{link_prefix}/v3/apps/#{app_model.guid}/revisions" },
               'deployed_revisions' => { 'href' => "#{link_prefix}/v3/apps/#{app_model.guid}/revisions/deployed" },
               'features' => { 'href' => "#{link_prefix}/v3/apps/#{app_model.guid}/features" }
@@ -1377,7 +1430,7 @@ RSpec.describe 'Apps' do
         get "/v3/apps/#{app_model.guid}?include=space", nil, user_header
         expect(last_response.status).to eq(200)
 
-        parsed_response = MultiJson.load(last_response.body)
+        parsed_response = Oj.load(last_response.body)
         expect(parsed_response).to be_a_response_like(
           {
             'name' => 'my_app',
@@ -1398,6 +1451,11 @@ RSpec.describe 'Apps' do
                 'data' => {
                   'guid' => space.guid
                 }
+              },
+              'current_droplet' => {
+                'data' => {
+                  'guid' => app_model.droplet_guid
+                }
               }
             },
             'links' => {
@@ -1411,6 +1469,7 @@ RSpec.describe 'Apps' do
               'tasks' => { 'href' => "#{link_prefix}/v3/apps/#{app_model.guid}/tasks" },
               'start' => { 'href' => "#{link_prefix}/v3/apps/#{app_model.guid}/actions/start", 'method' => 'POST' },
               'stop' => { 'href' => "#{link_prefix}/v3/apps/#{app_model.guid}/actions/stop", 'method' => 'POST' },
+              'clear_buildpack_cache' => { 'href' => "#{link_prefix}/v3/apps/#{app_model.guid}/actions/clear_buildpack_cache", 'method' => 'POST' },
               'revisions' => { 'href' => "#{link_prefix}/v3/apps/#{app_model.guid}/revisions" },
               'deployed_revisions' => { 'href' => "#{link_prefix}/v3/apps/#{app_model.guid}/revisions/deployed" },
               'features' => { 'href' => "#{link_prefix}/v3/apps/#{app_model.guid}/features" }
@@ -1458,7 +1517,7 @@ RSpec.describe 'Apps' do
         get "/v3/apps/#{app_model.guid}?include=space.organization", nil, user_header
         expect(last_response.status).to eq(200)
 
-        parsed_response = MultiJson.load(last_response.body)
+        parsed_response = Oj.load(last_response.body)
         spaces = parsed_response['included']['spaces']
         orgs = parsed_response['included']['organizations']
 
@@ -1534,7 +1593,7 @@ RSpec.describe 'Apps' do
       end
 
       let(:expected_codes_and_responses) do
-        h = Hash.new(code: 200, response_object: app_model_response_object)
+        h = Hash.new({ code: 200, response_object: app_model_response_object }.freeze)
         h['space_supporter'] = { code: 200, response_object: app_model_empty_system_env_response_object }
         h['global_auditor'] = h['org_manager'] = h['space_manager'] = h['space_auditor'] = { code: 403 }
         h['org_auditor'] = h['org_billing_manager'] = h['no_role'] = { code: 404 }
@@ -1666,7 +1725,7 @@ RSpec.describe 'Apps' do
       end
 
       let(:expected_codes_and_responses) do
-        h = Hash.new(code: 403)
+        h = Hash.new({ code: 403 }.freeze)
         h['admin'] = h['admin_read_only'] = h['space_developer'] = { code: 200, response_object: expected_response }
         h['space_supporter'] = { code: 200, response_object: expected_response_system_env_redacted }
         h['org_auditor'] = h['org_billing_manager'] = h['no_role'] = { code: 404 }
@@ -1682,7 +1741,7 @@ RSpec.describe 'Apps' do
 
         it_behaves_like 'permissions for single object endpoint', ALL_PERMISSIONS do
           let(:expected_codes_and_responses) do
-            h = Hash.new(code: 403)
+            h = Hash.new({ code: 403 }.freeze)
             h['admin'] = h['admin_read_only'] = { code: 200, response_object: expected_response }
             h['org_auditor'] = h['org_billing_manager'] = h['no_role'] = { code: 404 }
             h
@@ -1751,7 +1810,7 @@ RSpec.describe 'Apps' do
         ->(headers) { get "/v3/apps/#{app_model.guid}/builds", nil, headers }
       end
       let(:expected_codes_and_responses) do
-        h = Hash.new(code: 200, response_guids: [build.guid, second_build.guid])
+        h = Hash.new({ code: 200, response_guids: [build.guid, second_build.guid] }.freeze)
         h['org_auditor'] = { code: 404 }
         h['org_billing_manager'] = { code: 404 }
         h['no_role'] = { code: 404 }
@@ -1778,7 +1837,7 @@ RSpec.describe 'Apps' do
       it 'lists the builds for app' do
         get "v3/apps/#{app_model.guid}/builds?order_by=#{order_by}&per_page=#{per_page}", nil, user_header
 
-        parsed_response = MultiJson.load(last_response.body)
+        parsed_response = Oj.load(last_response.body)
 
         expect(last_response.status).to eq(200)
         expect(parsed_response['resources']).to include(hash_including('guid' => build.guid))
@@ -1893,7 +1952,7 @@ RSpec.describe 'Apps' do
       end
 
       let(:expected_codes_and_responses) do
-        h = Hash.new(code: 200)
+        h = Hash.new({ code: 200 }.freeze)
         h['org_auditor'] = { code: 404 }
         h['org_billing_manager'] = { code: 404 }
         h['no_role'] = { code: 404 }
@@ -1946,7 +2005,7 @@ RSpec.describe 'Apps' do
     context 'permissions for deleting an app' do
       let(:api_call) { ->(user_headers) { delete "/v3/apps/#{app_model.guid}", nil, user_headers } }
       let(:expected_codes_and_responses) do
-        h = Hash.new(code: 202)
+        h = Hash.new({ code: 202 }.freeze)
         %w[admin_read_only global_auditor org_manager space_auditor space_manager space_supporter].each do |r|
           h[r] = { code: 403, errors: CF_NOT_AUTHORIZED }
         end
@@ -2043,6 +2102,11 @@ RSpec.describe 'Apps' do
             'data' => {
               'guid' => space.guid
             }
+          },
+          'current_droplet' => {
+            'data' => {
+              'guid' => nil
+            }
           }
         },
         'created_at' => iso8601,
@@ -2068,6 +2132,7 @@ RSpec.describe 'Apps' do
           'tasks' => { 'href' => "#{link_prefix}/v3/apps/#{app_model.guid}/tasks" },
           'start' => { 'href' => "#{link_prefix}/v3/apps/#{app_model.guid}/actions/start", 'method' => 'POST' },
           'stop' => { 'href' => "#{link_prefix}/v3/apps/#{app_model.guid}/actions/stop", 'method' => 'POST' },
+          'clear_buildpack_cache' => { 'href' => "#{link_prefix}/v3/apps/#{app_model.guid}/actions/clear_buildpack_cache", 'method' => 'POST' },
           'revisions' => { 'href' => "#{link_prefix}/v3/apps/#{app_model.guid}/revisions" },
           'deployed_revisions' => { 'href' => "#{link_prefix}/v3/apps/#{app_model.guid}/revisions/deployed" },
           'features' => { 'href' => "#{link_prefix}/v3/apps/#{app_model.guid}/features" }
@@ -2104,7 +2169,7 @@ RSpec.describe 'Apps' do
 
       app_model.reload
 
-      parsed_response = MultiJson.load(last_response.body)
+      parsed_response = Oj.load(last_response.body)
       expect(parsed_response).to be_a_response_like(expected_response_object)
 
       event = VCAP::CloudController::Event.last
@@ -2164,7 +2229,7 @@ RSpec.describe 'Apps' do
     context 'permissions for updating an app' do
       let(:api_call) { ->(user_headers) { patch "/v3/apps/#{app_model.guid}", update_request.to_json, user_headers } }
       let(:expected_codes_and_responses) do
-        h = Hash.new(code: 200, response_object: expected_response_object)
+        h = Hash.new({ code: 200, response_object: expected_response_object }.freeze)
         %w[admin_read_only global_auditor org_manager space_auditor space_manager space_supporter].each do |r|
           h[r] = { code: 403, errors: CF_NOT_AUTHORIZED }
         end
@@ -2208,7 +2273,7 @@ RSpec.describe 'Apps' do
               'user-id' => OpenSSL::Digest::SHA256.hexdigest(user.guid)
             }
           }
-          expect_any_instance_of(ActiveSupport::Logger).to receive(:info).with(JSON.generate(expected_json))
+          expect_any_instance_of(ActiveSupport::Logger).to receive(:info).with(Oj.dump(expected_json))
 
           patch "/v3/apps/#{app_model.guid}", update_request.to_json, user_header
           expect(last_response.status).to eq(200), last_response.body
@@ -2267,6 +2332,11 @@ RSpec.describe 'Apps' do
                 'data' => {
                   'guid' => space.guid
                 }
+              },
+              'current_droplet' => {
+                'data' => {
+                  'guid' => droplet.guid
+                }
               }
             },
             'links' => {
@@ -2280,6 +2350,7 @@ RSpec.describe 'Apps' do
               'tasks' => { 'href' => "#{link_prefix}/v3/apps/#{app_model.guid}/tasks" },
               'start' => { 'href' => "#{link_prefix}/v3/apps/#{app_model.guid}/actions/start", 'method' => 'POST' },
               'stop' => { 'href' => "#{link_prefix}/v3/apps/#{app_model.guid}/actions/stop", 'method' => 'POST' },
+              'clear_buildpack_cache' => { 'href' => "#{link_prefix}/v3/apps/#{app_model.guid}/actions/clear_buildpack_cache", 'method' => 'POST' },
               'revisions' => { 'href' => "#{link_prefix}/v3/apps/#{app_model.guid}/revisions" },
               'deployed_revisions' => { 'href' => "#{link_prefix}/v3/apps/#{app_model.guid}/revisions/deployed" },
               'features' => { 'href' => "#{link_prefix}/v3/apps/#{app_model.guid}/features" }
@@ -2288,7 +2359,7 @@ RSpec.describe 'Apps' do
         end
 
         let(:expected_codes_and_responses) do
-          h = Hash.new(code: 403, errors: CF_NOT_AUTHORIZED)
+          h = Hash.new({ code: 403, errors: CF_NOT_AUTHORIZED }.freeze)
           h['no_role'] = { code: 404 }
           h['org_auditor'] = { code: 404 }
           h['org_billing_manager'] = { code: 404 }
@@ -2516,7 +2587,7 @@ RSpec.describe 'Apps' do
                 'user-id' => OpenSSL::Digest::SHA256.hexdigest(user.guid)
               }
             }
-            expect_any_instance_of(ActiveSupport::Logger).to receive(:info).with(JSON.generate(expected_json))
+            expect_any_instance_of(ActiveSupport::Logger).to receive(:info).with(Oj.dump(expected_json))
             post "/v3/apps/#{app_model.guid}/actions/start", nil, user_header
 
             expect(last_response.status).to eq(200), last_response.body
@@ -2601,6 +2672,11 @@ RSpec.describe 'Apps' do
               'data' => {
                 'guid' => space.guid
               }
+            },
+            'current_droplet' => {
+              'data' => {
+                'guid' => droplet.guid
+              }
             }
           },
           'links' => {
@@ -2614,6 +2690,7 @@ RSpec.describe 'Apps' do
             'tasks' => { 'href' => "#{link_prefix}/v3/apps/#{app_model.guid}/tasks" },
             'start' => { 'href' => "#{link_prefix}/v3/apps/#{app_model.guid}/actions/start", 'method' => 'POST' },
             'stop' => { 'href' => "#{link_prefix}/v3/apps/#{app_model.guid}/actions/stop", 'method' => 'POST' },
+            'clear_buildpack_cache' => { 'href' => "#{link_prefix}/v3/apps/#{app_model.guid}/actions/clear_buildpack_cache", 'method' => 'POST' },
             'revisions' => { 'href' => "#{link_prefix}/v3/apps/#{app_model.guid}/revisions" },
             'deployed_revisions' => { 'href' => "#{link_prefix}/v3/apps/#{app_model.guid}/revisions/deployed" },
             'features' => { 'href' => "#{link_prefix}/v3/apps/#{app_model.guid}/features" }
@@ -2622,7 +2699,7 @@ RSpec.describe 'Apps' do
       end
 
       let(:expected_codes_and_responses) do
-        h = Hash.new(code: 403, errors: CF_NOT_AUTHORIZED)
+        h = Hash.new({ code: 403, errors: CF_NOT_AUTHORIZED }.freeze)
         h['no_role'] = { code: 404 }
         h['org_auditor'] = { code: 404 }
         h['org_billing_manager'] = { code: 404 }
@@ -2704,7 +2781,7 @@ RSpec.describe 'Apps' do
               'user-id' => OpenSSL::Digest::SHA256.hexdigest(user.guid)
             }
           }
-          expect_any_instance_of(ActiveSupport::Logger).to receive(:info).with(JSON.generate(expected_json))
+          expect_any_instance_of(ActiveSupport::Logger).to receive(:info).with(Oj.dump(expected_json))
 
           post "/v3/apps/#{app_model.guid}/actions/stop", nil, user_header
 
@@ -2764,6 +2841,11 @@ RSpec.describe 'Apps' do
                 'data' => {
                   'guid' => space.guid
                 }
+              },
+              'current_droplet' => {
+                'data' => {
+                  'guid' => droplet.guid
+                }
               }
             },
             'links' => {
@@ -2777,6 +2859,7 @@ RSpec.describe 'Apps' do
               'tasks' => { 'href' => "#{link_prefix}/v3/apps/#{app_model.guid}/tasks" },
               'start' => { 'href' => "#{link_prefix}/v3/apps/#{app_model.guid}/actions/start", 'method' => 'POST' },
               'stop' => { 'href' => "#{link_prefix}/v3/apps/#{app_model.guid}/actions/stop", 'method' => 'POST' },
+              'clear_buildpack_cache' => { 'href' => "#{link_prefix}/v3/apps/#{app_model.guid}/actions/clear_buildpack_cache", 'method' => 'POST' },
               'revisions' => { 'href' => "#{link_prefix}/v3/apps/#{app_model.guid}/revisions" },
               'deployed_revisions' => { 'href' => "#{link_prefix}/v3/apps/#{app_model.guid}/revisions/deployed" },
               'features' => { 'href' => "#{link_prefix}/v3/apps/#{app_model.guid}/features" }
@@ -2785,7 +2868,7 @@ RSpec.describe 'Apps' do
         end
 
         let(:expected_codes_and_responses) do
-          h = Hash.new(code: 403, errors: CF_NOT_AUTHORIZED)
+          h = Hash.new({ code: 403, errors: CF_NOT_AUTHORIZED }.freeze)
           h['no_role'] = { code: 404 }
           h['org_auditor'] = { code: 404 }
           h['org_billing_manager'] = { code: 404 }
@@ -2842,7 +2925,7 @@ RSpec.describe 'Apps' do
                 'user-id' => OpenSSL::Digest::SHA256.hexdigest(user.guid)
               }
             }
-            expect_any_instance_of(ActiveSupport::Logger).to receive(:info).with(JSON.generate(expected_json))
+            expect_any_instance_of(ActiveSupport::Logger).to receive(:info).with(Oj.dump(expected_json))
 
             post "/v3/apps/#{app_model.guid}/actions/restart", nil, user_header
 
@@ -2870,7 +2953,7 @@ RSpec.describe 'Apps' do
     end
 
     let(:expected_codes_and_responses) do
-      h = Hash.new(code: 200, response_object: expected_response)
+      h = Hash.new({ code: 200, response_object: expected_response }.freeze)
       h['no_role'] = { code: 404 }
       h['org_billing_manager'] = { code: 404 }
       h['org_auditor'] = { code: 404 }
@@ -2933,7 +3016,7 @@ RSpec.describe 'Apps' do
       }
     end
     let(:expected_codes_and_responses) do
-      h = Hash.new(code: 200, response_object: expected_response)
+      h = Hash.new({ code: 200, response_object: expected_response }.freeze)
       h['no_role'] = { code: 404 }
       h['org_billing_manager'] = { code: 404 }
       h['org_auditor'] = { code: 404 }
@@ -2991,7 +3074,7 @@ RSpec.describe 'Apps' do
       end
 
       let(:expected_codes_and_responses) do
-        h = Hash.new(code: 403, errors: CF_NOT_AUTHORIZED)
+        h = Hash.new({ code: 403, errors: CF_NOT_AUTHORIZED }.freeze)
         h['no_role'] = { code: 404 }
         h['org_auditor'] = { code: 404 }
         h['org_billing_manager'] = { code: 404 }
@@ -3162,7 +3245,7 @@ RSpec.describe 'Apps' do
               'app-id' => OpenSSL::Digest::SHA256.hexdigest(app_model.guid)
             }
           }
-          expect_any_instance_of(ActiveSupport::Logger).to receive(:info).with(JSON.generate(expected_json))
+          expect_any_instance_of(ActiveSupport::Logger).to receive(:info).with(Oj.dump(expected_json))
 
           patch "/v3/apps/#{app_model.guid}/relationships/current_droplet", request_body.to_json, user_header
 
@@ -3211,7 +3294,7 @@ RSpec.describe 'Apps' do
       }
     end
     let(:expected_codes_and_responses) do
-      h = Hash.new(code: 404)
+      h = Hash.new({ code: 404 }.freeze)
       %w[global_auditor admin_read_only org_manager space_auditor space_manager].each do |r|
         h[r] = { code: 403, errors: CF_NOT_AUTHORIZED }
       end
@@ -3260,7 +3343,7 @@ RSpec.describe 'Apps' do
 
     it_behaves_like 'permissions for single object endpoint', ALL_PERMISSIONS do
       let(:expected_codes_and_responses) do
-        h = Hash.new(code: 404)
+        h = Hash.new({ code: 404 }.freeze)
         h['global_auditor'] = h['org_manager'] = h['space_auditor'] = h['space_manager'] = { code: 403 }
         h['admin'] = h['admin_read_only'] = h['space_developer'] = h['space_supporter'] = {
           code: 200,
@@ -3277,7 +3360,7 @@ RSpec.describe 'Apps' do
 
       it_behaves_like 'permissions for single object endpoint', ALL_PERMISSIONS do
         let(:expected_codes_and_responses) do
-          h = Hash.new(code: 404)
+          h = Hash.new({ code: 404 }.freeze)
           h['global_auditor'] = h['org_manager'] = h['space_auditor'] = h['space_manager'] = h['space_developer'] = h['space_supporter'] = { code: 403 }
           h['admin'] = h['admin_read_only'] = {
             code: 200,
@@ -3310,7 +3393,7 @@ RSpec.describe 'Apps' do
     end
 
     let(:expected_codes_and_responses) do
-      h = Hash.new(code: 404)
+      h = Hash.new({ code: 404 }.freeze)
       h['admin'] = { code: 200, response_object: read_all_response }
       h['admin_read_only'] = { code: 200, response_object: read_all_response }
       h['global_auditor'] = { code: 200, response_object: read_basic_response }

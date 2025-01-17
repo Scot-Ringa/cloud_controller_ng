@@ -10,7 +10,7 @@ module Logcache
       @logcache_client = logcache_client
     end
 
-    def container_metrics(source_guid:, logcache_filter:, auth_token: nil)
+    def container_metrics(source_guid:, logcache_filter:)
       now = Time.now
       start_time = TimeUtils.to_nanoseconds(now - 2.minutes)
       end_time = TimeUtils.to_nanoseconds(now)
@@ -64,6 +64,7 @@ module Logcache
       # on envelope.gauge.metrics - but it does not
       # rubocop:disable Style/PreferredHashMethods
       envelope.gauge.metrics.has_key?('cpu') ||
+        envelope.gauge.metrics.has_key?('cpu_entitlement') ||
         envelope.gauge.metrics.has_key?('memory') ||
         envelope.gauge.metrics.has_key?('memory_quota') ||
         envelope.gauge.metrics.has_key?('disk') ||
@@ -82,6 +83,7 @@ module Logcache
         # on envelope.gauge.metrics - but it does not
         # rubocop:disable Style/PreferredHashMethods
         metric_batch.cpu_percentage = e.gauge.metrics['cpu'].value if e.gauge.metrics.has_key?('cpu')
+        metric_batch.cpu_entitlement_percentage = e.gauge.metrics['cpu_entitlement'].value if e.gauge.metrics.has_key?('cpu_entitlement')
         metric_batch.memory_bytes = e.gauge.metrics['memory'].value.to_i if e.gauge.metrics.has_key?('memory')
         metric_batch.disk_bytes = e.gauge.metrics['disk'].value.to_i if e.gauge.metrics.has_key?('disk')
         metric_batch.log_rate = e.gauge.metrics['log_rate'].value.to_i if e.gauge.metrics.has_key?('log_rate')

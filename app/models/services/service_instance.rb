@@ -110,6 +110,15 @@ module VCAP::CloudController
       end
     end
 
+    def around_save
+      yield
+    rescue Sequel::UniqueConstraintViolation => e
+      raise e unless e.message.include?('si_space_id_name_index')
+
+      errors.add(:name, :unique)
+      raise validation_failed_error
+    end
+
     def validate
       validates_presence :name
       validates_presence :space
@@ -144,11 +153,11 @@ module VCAP::CloudController
     def to_hash(opts={})
       access_context = VCAP::CloudController::Security::AccessContext.new
       opts[:redact] = ['credentials'] if access_context.cannot?(:read_env, self)
-      super(opts)
+      super
     end
 
     def credentials_with_serialization=(val)
-      self.credentials_without_serialization = MultiJson.dump(val)
+      self.credentials_without_serialization = Oj.dump(val)
     end
     alias_method 'credentials_without_serialization=', 'credentials='
     alias_method 'credentials=', 'credentials_with_serialization='
@@ -157,7 +166,7 @@ module VCAP::CloudController
       string = credentials_without_serialization
       return if string.blank?
 
-      MultiJson.load string
+      Oj.load(string)
     end
     alias_method 'credentials_without_serialization', 'credentials'
     alias_method 'credentials', 'credentials_with_serialization'

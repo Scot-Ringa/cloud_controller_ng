@@ -7,14 +7,14 @@ module VCAP::CloudController
     describe 'GET /' do
       it 'returns a link to itself' do
         get '/'
-        hash = MultiJson.load(last_response.body)
+        hash = Oj.load(last_response.body)
         expected_uri = link_prefix.to_s
         expect(hash['links']['self']['href']).to eq(expected_uri)
       end
 
       it 'returns a cloud controller v2 link with metadata' do
         get '/'
-        hash = MultiJson.load(last_response.body)
+        hash = Oj.load(last_response.body)
         expected_uri = "#{link_prefix}/v2"
         expect(hash['links']['cloud_controller_v2']).to eq(
           {
@@ -26,9 +26,21 @@ module VCAP::CloudController
         )
       end
 
+      context 'temporary_enable_v2 is false' do
+        before do
+          TestConfig.override(temporary_enable_v2: false)
+        end
+
+        it 'returns no cloud controller v2 link with metadata' do
+          get '/'
+          hash = Oj.load(last_response.body)
+          expect(hash['links']['cloud_controller_v2']).to be_nil
+        end
+      end
+
       it 'returns a cloud controller v3 link with metadata' do
         get '/'
-        hash = MultiJson.load(last_response.body)
+        hash = Oj.load(last_response.body)
         expected_uri = "#{link_prefix}/v3"
         expect(hash['links']['cloud_controller_v3']).to eq(
           {
@@ -42,13 +54,13 @@ module VCAP::CloudController
 
       it 'returns a link to login service' do
         get '/'
-        hash = MultiJson.load(last_response.body)
+        hash = Oj.load(last_response.body)
         expect(hash['links']['login']['href']).to eq(TestConfig.config[:login][:url])
       end
 
       it 'returns a link to UAA' do
         get '/'
-        hash = MultiJson.load(last_response.body)
+        hash = Oj.load(last_response.body)
         expect(hash['links']['uaa']['href']).to eq(TestConfig.config[:uaa][:url])
       end
 
@@ -60,7 +72,7 @@ module VCAP::CloudController
 
           it 'returns a link' do
             get '/'
-            hash = MultiJson.load(last_response.body)
+            hash = Oj.load(last_response.body)
             expect(hash['links']['credhub']['href']).to eq('http://credhub.external.com')
           end
         end
@@ -72,7 +84,7 @@ module VCAP::CloudController
 
           it 'does not return a link' do
             get '/'
-            hash = MultiJson.load(last_response.body)
+            hash = Oj.load(last_response.body)
             expect(hash['links']['credhub']).to be_nil
           end
         end
@@ -83,7 +95,7 @@ module VCAP::CloudController
           it 'returns a link' do
             TestConfig.override(routing_api: { url: 'some_routing_api' })
             get '/'
-            hash = MultiJson.load(last_response.body)
+            hash = Oj.load(last_response.body)
             expect(hash['links']['routing']['href']).to eq('some_routing_api')
           end
         end
@@ -95,7 +107,7 @@ module VCAP::CloudController
 
           it 'does not return a link' do
             get '/'
-            hash = MultiJson.load(last_response.body)
+            hash = Oj.load(last_response.body)
             expect(hash['links']['routing']).to be_nil
           end
         end
@@ -103,14 +115,14 @@ module VCAP::CloudController
 
       it 'returns a link to network-policy v0 API' do
         get '/'
-        hash = MultiJson.load(last_response.body)
+        hash = Oj.load(last_response.body)
         expected_uri = "#{link_prefix}/networking/v0/external"
         expect(hash['links']['network_policy_v0']['href']).to eq(expected_uri)
       end
 
       it 'returns a link to network-policy v1 API' do
         get '/'
-        hash = MultiJson.load(last_response.body)
+        hash = Oj.load(last_response.body)
         expected_uri = "#{link_prefix}/networking/v1/external"
         expect(hash['links']['network_policy_v1']['href']).to eq(expected_uri)
       end
@@ -120,7 +132,7 @@ module VCAP::CloudController
         TestConfig.override(doppler: { url: expected_uri })
 
         get '/'
-        hash = MultiJson.load(last_response.body)
+        hash = Oj.load(last_response.body)
         expect(hash['links']['logging']['href']).to eq(expected_uri)
       end
 
@@ -128,7 +140,7 @@ module VCAP::CloudController
         expected_uri = 'https://log-cache.example.com'
 
         get '/'
-        hash = MultiJson.load(last_response.body)
+        hash = Oj.load(last_response.body)
         expect(hash['links']['log_cache']['href']).to eq(expected_uri)
       end
 
@@ -136,7 +148,7 @@ module VCAP::CloudController
         expected_uri = 'https://log-stream.example.com'
 
         get '/'
-        hash = MultiJson.load(last_response.body)
+        hash = Oj.load(last_response.body)
         expect(hash['links']['log_stream']['href']).to eq(expected_uri)
       end
 
@@ -153,7 +165,7 @@ module VCAP::CloudController
         )
 
         get '/'
-        hash = MultiJson.load(last_response.body)
+        hash = Oj.load(last_response.body)
         expect(hash['links']['app_ssh']).to eq(
           'href' => expected_ssh_endpoint,
           'meta' => {

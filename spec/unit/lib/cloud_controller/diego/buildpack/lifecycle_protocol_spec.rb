@@ -180,7 +180,10 @@ module VCAP
               expect(TaskActionBuilder).to have_received(:new).with(config, task, {
                                                                       droplet_uri: 'droplet-download-url',
                                                                       stack: 'potato-stack'
-                                                                    })
+                                                                    },
+                                                                    'vcap',
+                                                                    ['app', task.command, ''],
+                                                                    'buildpack')
             end
 
             context 'when the blobstore_url_generator returns nil' do

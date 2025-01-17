@@ -1,4 +1,5 @@
 require 'delayed_job/quit_trap'
+require 'delayed_job/delayed_worker'
 
 namespace :jobs do
   desc 'Clear the delayed_job queue.'
@@ -8,6 +9,18 @@ namespace :jobs do
                                                                                             :cloud_controller_worker)) do
       Delayed::Job.delete_all
     end
+  end
+
+  desc 'Clear pending locks for the current delayed worker.'
+  task :clear_pending_locks, [:name] => :environment do |_t, args|
+    puts RUBY_DESCRIPTION
+    puts "Clearing pending locks for worker: #{args.name}"
+    args.with_defaults(name: ENV.fetch('HOSTNAME', nil))
+
+    RakeConfig.context = :worker
+
+    CloudController::DelayedWorker.new(queues: [],
+                                       name: args.name).clear_locks!
   end
 
   desc 'Start a delayed_job worker that works on jobs that require access to local resources.'
@@ -24,9 +37,11 @@ namespace :jobs do
   end
 
   desc 'Start a delayed_job worker.'
-  task :generic, [:name] => :environment do |_t, args|
+  task :generic, %i[name num_threads thread_grace_period_seconds] => :environment do |_t, args|
     puts RUBY_DESCRIPTION
     args.with_defaults(name: ENV.fetch('HOSTNAME', nil))
+    args.with_defaults(num_threads: nil)
+    args.with_defaults(thread_grace_period_seconds: nil)
 
     RakeConfig.context = :worker
     queues = [
@@ -34,6 +49,7 @@ namespace :jobs do
       'app_usage_events',
       'audit_events',
       'failed_jobs',
+      'service_operations_initial_cleanup',
       'service_usage_events',
       'completed_tasks',
       'expired_blob_cleanup',
@@ -48,65 +64,6 @@ namespace :jobs do
       'prune_excess_app_revisions'
     ]
 
-    CloudController::DelayedWorker.new(queues: queues,
-                                       name: args.name).start_working
-  end
-
-  class CloudController::DelayedWorker
-    def initialize(options)
-      @queue_options = {
-        min_priority: ENV.fetch('MIN_PRIORITY', nil),
-        max_priority: ENV.fetch('MAX_PRIORITY', nil),
-        queues: options.fetch(:queues),
-        worker_name: options[:name],
-        quiet: true
-      }
-    end
-
-    def start_working
-      config = RakeConfig.config
-      BackgroundJobEnvironment.new(config).setup_environment(readiness_port)
-
-      logger = Steno.logger('cc-worker')
-      logger.info("Starting job with options #{@queue_options}")
-
-      setup_app_log_emitter(config, logger)
-      Delayed::Worker.destroy_failed_jobs = false
-      Delayed::Worker.max_attempts = 3
-      Delayed::Worker.logger = logger
-      worker = Delayed::Worker.new(@queue_options)
-      worker.name = @queue_options[:worker_name]
-      worker.start
-    end
-
-    private
-
-    def setup_app_log_emitter(config, logger)
-      VCAP::AppLogEmitter.fluent_emitter = fluent_emitter(config) if config.get(:fluent)
-      if config.get(:loggregator) && config.get(
-        :loggregator, :router
-      )
-        VCAP::AppLogEmitter.emitter = LoggregatorEmitter::Emitter.new(config.get(:loggregator, :router), 'cloud_controller', 'API',
-                                                                      config.get(:index))
-      end
-
-      VCAP::AppLogEmitter.logger = logger
-    end
-
-    def fluent_emitter(config)
-      VCAP::FluentEmitter.new(Fluent::Logger::FluentLogger.new(nil,
-                                                               host: config.get(:fluent, :host) || 'localhost',
-                                                               port: config.get(:fluent, :port) || 24_224))
-    end
-
-    def readiness_port
-      return unless is_first_generic_worker_on_machine?
-
-      RakeConfig.config.get(:readiness_port, :cloud_controller_worker)
-    end
-
-    def is_first_generic_worker_on_machine?
-      RakeConfig.context != :api && ENV['INDEX']&.to_i == 1
-    end
+    CloudController::DelayedWorker.new(queues: queues, name: args.name, num_threads: args.num_threads, thread_grace_period_seconds: args.thread_grace_period_seconds).start_working
   end
 end

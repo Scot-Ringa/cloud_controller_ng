@@ -22,7 +22,6 @@ require 'cloud_controller/diego/messenger'
 require 'cloud_controller/blobstore/client_provider'
 require 'cloud_controller/resource_pool_wrapper'
 require 'cloud_controller/packager/local_bits_packer'
-require 'cloud_controller/packager/registry_bits_packer'
 require 'credhub/client'
 require 'cloud_controller/metrics/prometheus_updater'
 
@@ -208,7 +207,7 @@ module CloudController
     end
 
     def droplet_url_generator
-      VCAP::CloudController::Diego::Buildpack::DropletUrlGenerator.new(
+      VCAP::CloudController::Diego::DropletUrlGenerator.new(
         internal_service_hostname: config.get(:internal_service_hostname),
         external_port: config.get(:external_port),
         tls_port: config.get(:tls_port),
@@ -289,6 +288,19 @@ module CloudController
       )
     end
 
+    def uaa_shadow_user_creation_client
+      client = config.get(:uaa, :clients)&.find { |client_config| client_config['name'] == 'cloud_controller_shadow_user_creation' }
+
+      return unless client
+
+      UaaClient.new(
+        uaa_target: config.get(:uaa, :internal_url),
+        client_id: client['id'],
+        secret: client['secret'],
+        ca_file: config.get(:uaa, :ca_file)
+      )
+    end
+
     def routing_api_client
       return RoutingApi::DisabledClient.new if config.get(:routing_api).nil?
 
@@ -332,26 +344,17 @@ module CloudController
     end
 
     def packer
-      if config.package_image_registry_configured?
-        Packager::RegistryBitsPacker.new
-      else
-        Packager::LocalBitsPacker.new
-      end
-    end
-
-    def registry_buddy_client
-      RegistryBuddy::Client.new(
-        VCAP::CloudController::Config.config.get(:registry_buddy, :host),
-        VCAP::CloudController::Config.config.get(:registry_buddy, :port)
-      )
+      Packager::LocalBitsPacker.new
     end
 
     def statsd_client
       if @dependencies[:statsd_client]
         @dependencies[:statsd_client]
-      else
+      elsif config.get(:enable_statsd_metrics) == true || config.get(:enable_statsd_metrics).nil?
         Statsd.logger = Steno.logger('statsd.client')
         register(:statsd_client, Statsd.new(config.get(:statsd_host), config.get(:statsd_port)))
+      else
+        register(:statsd_client, NullStatsdClient.new)
       end
     end
 
@@ -439,6 +442,24 @@ module CloudController
                                                                                collection_transformer:,
                                                                                max_total_results:
                                                                              })
+    end
+  end
+
+  class NullStatsdClient
+    def timing(_key, _value)
+      # Null implementation
+    end
+
+    def increment(_key)
+      # Null implementation
+    end
+
+    def gauge(_stat, _value, _sample_rate=1)
+      # Null implementation
+    end
+
+    def batch
+      # Null implementation
     end
   end
 end

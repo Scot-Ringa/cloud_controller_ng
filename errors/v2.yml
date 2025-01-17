@@ -613,6 +613,11 @@
   http_code: 502
   message: "Deletion of app %s failed because one or more associated resources could not be deleted.\n\n%s"
 
+150010:
+  name: ResourceChecksumMismatch
+  http_code: 500
+  message: "One or more cached resources did not match the given checksum. They have been deleted; please retry package upload."
+
 160001:
   name: AppBitsUploadInvalid
   http_code: 400
@@ -1148,6 +1153,11 @@
   http_code: 400
   message: "V2 restaging is disabled when your app has revisions enabled"
 
+320007:
+  name: CNBDisabled
+  http_code: 400
+  message: "Cloud Native Buildpacks support has not been enabled."
+
 330000:
   name: FeatureFlagNotFound
   http_code: 404
@@ -1353,3 +1363,43 @@
   name: KorifiError
   http_code: 500
   message: "%s"
+
+420001:
+  name: DeserializationError
+  http_code: 500
+  message: "%s"
+
+430001:
+  name: CNBGenericBuildFailed         
+  http_code: 400
+  message: "cnb: generic build failure"
+
+430002:
+  name: CNBDownloadBuildpackFailed 
+  http_code: 400
+  message: "cnb: downloading buildpacks failed: This may be caused by a wrong url, invalid buildpack or invalid credentials. Check the staging logs for more details."
+
+430003:
+  name: CNBDetectFailed            
+  http_code: 400
+  message: "cnb: detecting failed"
+
+430004:
+  name: CNBBuildFailed             
+  http_code: 400
+  message: "cnb: building failed"
+
+430005:
+  name: CNBExportFailed            
+  http_code: 400
+  message: "cnb: exporting failed"
+
+430006:
+  name: CNBLaunchFailed            
+  http_code: 400
+  message: "cnb: launching failed"
+
+430007:
+  name: CNBRestoreFailed            
+  http_code: 400
+  message: "cnb: restore failed"

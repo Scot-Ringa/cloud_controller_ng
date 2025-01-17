@@ -4,6 +4,8 @@ require 'cloud_controller/paging/pagination_options'
 
 module VCAP::CloudController
   RSpec.describe SequelPaginator do
+    class TableWithoutGuid < Sequel::Model(:table_without_guid); end
+
     let(:paginator) { SequelPaginator.new }
 
     describe '#get_page' do
@@ -13,6 +15,8 @@ module VCAP::CloudController
       let!(:app_model2) { AppModel.make }
       let!(:app_model3) { AppModel.make }
       let!(:app_model4) { AppModel.make }
+      let!(:space_manager_model) { SpaceManager.make }
+      let!(:space_developer_model) { SpaceDeveloper.make }
       let(:page) { 1 }
       let(:per_page) { 1 }
 
@@ -96,6 +100,49 @@ module VCAP::CloudController
         expect(paginated_result.records[0].associations[:space].name).to eq(space.name)
       end
 
+      it 'works when pages are generated from a subquery' do
+        options = { page: page, per_page: per_page, order_by: :guid }
+        pagination_options = PaginationOptions.new(options)
+        dataset = Role.dataset
+        paginated_result = nil
+        expect do
+          paginated_result = paginator.get_page(dataset, pagination_options)
+        end.to have_queried_db_times(/select/i, paginator.can_paginate_with_window_function?(dataset) ? 1 : 2)
+        expect(paginated_result.total).to eq(2)
+      end
+
+      context 'when not using window functions' do
+        let(:my_config) do
+          {
+            db: {
+              enable_paginate_window: false
+            }
+          }
+        end
+
+        before do
+          TestConfig.override(**my_config)
+        end
+
+        it 'works when pages are generated from a subquery' do
+          options = { page: page, per_page: per_page, order_by: :guid }
+          pagination_options = PaginationOptions.new(options)
+          dataset = Role.dataset
+          paginated_result = nil
+          expect do
+            paginated_result = paginator.get_page(dataset, pagination_options)
+          end.to have_queried_db_times(/select/i, 2)
+          expect(paginated_result.total).to eq(2)
+        end
+      end
+
+      it 'paged results do not contain extra columns' do
+        options = { page:, per_page: }
+        pagination_options = PaginationOptions.new(options)
+        paginated_result = paginator.get_page(dataset, pagination_options)
+        expect(paginated_result.records.first.keys).to match_array(AppModel.columns)
+      end
+
       it 'orders by GUID as a secondary field when available' do
         options = { page: page, per_page: 2, order_by: 'created_at', order_direction: 'asc' }
         app_model1.update(guid: '1', created_at: '2019-12-25T13:00:00Z')
@@ -108,15 +155,16 @@ module VCAP::CloudController
       end
 
       it 'does not order by GUID when the table has no GUID' do
-        options = { page:, per_page: }
+        options = { page: page, per_page: 2, order_by: 'created_at', order_direction: 'asc' }
+
         pagination_options = PaginationOptions.new(options)
-        orphaned_blob_dataset = OrphanedBlob.dataset
-        OrphanedBlob.make.save
-        paginated_result = nil
+        ds = TableWithoutGuid.dataset
         expect do
-          paginated_result = paginator.get_page(orphaned_blob_dataset, pagination_options)
-        end.not_to raise_error
-        expect(paginated_result.total).to be 1
+          paginator.get_page(ds, pagination_options)
+        end.to have_queried_db_times(/ORDER BY .\w*.\..created_at. ASC LIMIT/i, 1)
+        expect do
+          paginator.get_page(ds, pagination_options)
+        end.to have_queried_db_times(/ORDER BY .\w*.\..created_at. ASC, .\w*.\..guid. ASC LIMIT/i, 0)
       end
 
       it 'does not order by GUID when the primary order is by ID' do
@@ -129,6 +177,40 @@ module VCAP::CloudController
         expect do
           paginator.get_page(dataset, pagination_options)
         end.to have_queried_db_times(/ORDER BY .\w*.\..id. ASC, .\w*.\..guid. ASC LIMIT/i, 0)
+      end
+
+      context 'when a DISTINCT ON clause is used' do # MySQL uses GROUP BY instead
+        let(:distinct_dataset) { dataset.distinct(:id) }
+
+        context 'when ordered by ID' do
+          let(:pagination_options) { PaginationOptions.new({ order_by: 'id' }) }
+
+          it 'uses column ID for DISTINCT ON clause' do
+            expect do
+              paginator.get_page(distinct_dataset, pagination_options)
+            end.to have_queried_db_times(/(select distinct on \(.*id.*\) .* from)|(group by)/i, paginator.can_paginate_with_window_function?(dataset) ? 1 : 2)
+          end
+        end
+
+        context 'when ordered by other column' do
+          let(:pagination_options) { PaginationOptions.new({ order_by: 'created_at' }) }
+
+          it 'uses other column and GUID for DISTINCT ON clause' do
+            expect do
+              paginator.get_page(distinct_dataset, pagination_options)
+            end.to have_queried_db_times(/(select distinct on \(.*created_at.*,.*guid.*\) .* from)|(group by)/i, paginator.can_paginate_with_window_function?(dataset) ? 1 : 2)
+          end
+
+          context 'when table has no GUID column' do
+            let(:dataset) { TableWithoutGuid.dataset }
+
+            it 'uses a DISTINCT clause instead' do
+              expect do
+                paginator.get_page(distinct_dataset, pagination_options)
+              end.to have_queried_db_times(/(select distinct (?!on).* from)|(group by)/i, paginator.can_paginate_with_window_function?(dataset) ? 1 : 2)
+            end
+          end
+        end
       end
 
       it 'produces a descending order which is exactly the reverse order of the ascending ordering' do
@@ -205,14 +287,75 @@ module VCAP::CloudController
         end
       end
 
-      it 'returns correct total results for distinct result' do
-        options = { page: page, per_page: per_page, order_by: :key_name }
-        pagination_options = PaginationOptions.new(options)
-        2.times { SpaceLabelModel.create(key_name: 'testLabel') }
-        dataset = SpaceLabelModel.dataset.distinct(:key_name)
-        paginated_result = paginator.get_page(dataset, pagination_options)
+      context 'enable_paginate_window config flag' do
+        let(:dataset) { AppModel.dataset }
+        let!(:app_1) { AppModel.make(guid: '1', created_at: '2024-05-15T17:23:01Z') }
+        let!(:app_2) { AppModel.make(guid: '2', created_at: '2024-05-15T17:23:02Z') }
+        let!(:app_3) { AppModel.make(guid: '3', created_at: '2024-05-15T17:23:03Z') }
+        let!(:app_4) { AppModel.make(guid: '4', created_at: '2024-05-15T17:23:04Z') }
 
-        expect(paginated_result.total).to eq(1)
+        context 'not defined' do
+          it 'uses window function if supported' do
+            options = { page:, per_page: }
+            pagination_options = PaginationOptions.new(options)
+
+            paginated_result = nil
+            expect do
+              paginated_result = paginator.get_page(dataset, pagination_options)
+            end.to have_queried_db_times(/select/i, dataset.supports_window_functions? ? 1 : 2)
+            expect(paginated_result.total).to be > 1
+          end
+        end
+
+        context 'set to true' do
+          let(:my_config) do
+            {
+              db: {
+                enable_paginate_window: true
+              }
+            }
+          end
+
+          before do
+            TestConfig.override(**my_config)
+          end
+
+          it 'uses window function if supported' do
+            options = { page:, per_page: }
+            pagination_options = PaginationOptions.new(options)
+
+            paginated_result = nil
+            expect do
+              paginated_result = paginator.get_page(dataset, pagination_options)
+            end.to have_queried_db_times(/select/i, dataset.supports_window_functions? ? 1 : 2)
+            expect(paginated_result.total).to be > 1
+          end
+        end
+
+        context 'set to false' do
+          let(:my_config) do
+            {
+              db: {
+                enable_paginate_window: false
+              }
+            }
+          end
+
+          before do
+            TestConfig.override(**my_config)
+          end
+
+          it 'does not use window function' do
+            options = { page:, per_page: }
+            pagination_options = PaginationOptions.new(options)
+
+            paginated_result = nil
+            expect do
+              paginated_result = paginator.get_page(dataset, pagination_options)
+            end.to have_queried_db_times(/select/i, 2)
+            expect(paginated_result.total).to be > 1
+          end
+        end
       end
     end
   end

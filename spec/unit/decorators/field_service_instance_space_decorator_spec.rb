@@ -8,11 +8,15 @@ module VCAP::CloudController
       let(:org1) { Organization.make }
       let(:org2) { Organization.make }
 
-      let(:space1) { Space.make(organization: org1) }
+      let(:space1) { Space.make(organization: org1, created_at: Time.now.utc - 1.second) }
       let(:space2) { Space.make(organization: org2) }
 
-      let!(:service_instance_1) { ManagedServiceInstance.make(space: space1) }
-      let!(:service_instance_2) { UserProvidedServiceInstance.make(space: space2) }
+      let(:service_instance_1) { ManagedServiceInstance.make(space: space1) }
+      let(:service_instance_2) { UserProvidedServiceInstance.make(space: space2) }
+
+      before do
+        allow(Permissions).to receive(:new).and_return(double(can_read_globally?: true))
+      end
 
       context 'when space guid, name and relationship.organizations are requested' do
         let(:decorator) { described_class.new({ space: ['relationships.organization', 'guid', 'name'] }) }
@@ -137,7 +141,7 @@ module VCAP::CloudController
 
       context 'when instances share a space' do
         let(:decorator) { described_class.new({ space: ['guid'] }) }
-        let!(:service_instance_3) { ManagedServiceInstance.make(space: space1) }
+        let(:service_instance_3) { ManagedServiceInstance.make(space: space1) }
 
         it 'does not duplicate the space' do
           hash = decorator.decorate({}, [service_instance_1, service_instance_3])

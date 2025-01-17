@@ -125,7 +125,7 @@ RSpec.describe 'Tasks' do
 
         get '/v3/tasks?per_page=2', nil, developer_headers
 
-        parsed_response = MultiJson.load(last_response.body)
+        parsed_response = Oj.load(last_response.body)
 
         expect(last_response.status).to eq(200)
         expect(parsed_response).to be_a_response_like({
@@ -300,7 +300,7 @@ RSpec.describe 'Tasks' do
       end
 
       let(:expected_codes_and_responses) do
-        h = Hash.new(code: 200, response_objects: expected_response)
+        h = Hash.new({ code: 200, response_objects: expected_response }.freeze)
         h['org_billing_manager'] = h['org_auditor'] = h['no_role'] = {
           code: 200,
           response_objects: []
@@ -350,7 +350,7 @@ RSpec.describe 'Tasks' do
                          "&organization_guids=#{app_model.organization.guid}" \
                          "&page=1&per_page=50&space_guids=#{app_model.space.guid}&states=SUCCEEDED"
 
-        parsed_response = MultiJson.load(last_response.body)
+        parsed_response = Oj.load(last_response.body)
 
         expect(last_response.status).to eq(200)
         expect(parsed_response['resources'].pluck('guid')).to eq([task1.guid])
@@ -400,7 +400,7 @@ RSpec.describe 'Tasks' do
           'previous' => nil
         }
 
-        parsed_response = MultiJson.load(last_response.body)
+        parsed_response = Oj.load(last_response.body)
 
         expect(last_response.status).to eq(200), last_response.body
         expect(parsed_response['resources'].count).to eq(1)
@@ -460,7 +460,7 @@ RSpec.describe 'Tasks' do
       end
       let(:expected_response_with_command) { expected_response.merge({ 'command' => 'echo task' }) }
       let(:expected_codes_and_responses) do
-        h = Hash.new(code: 200, response_object: expected_response)
+        h = Hash.new({ code: 200, response_object: expected_response }.freeze)
         h['admin'] = h['admin_read_only'] = h['space_developer'] = { code: 200, response_object: expected_response_with_command }
         h['org_auditor'] = h['org_billing_manager'] = h['no_role'] = { code: 404 }
         h
@@ -482,7 +482,7 @@ RSpec.describe 'Tasks' do
       put "/v3/tasks/#{task.guid}/cancel", nil, developer_headers
 
       expect(last_response.status).to eq(202)
-      parsed_body = JSON.parse(last_response.body)
+      parsed_body = Oj.load(last_response.body)
       expect(parsed_body['guid']).to eq(task.guid)
       expect(parsed_body['name']).to eq('task')
       expect(parsed_body['command']).to eq('echo task')
@@ -584,7 +584,7 @@ RSpec.describe 'Tasks' do
     context 'permissions' do
       let(:api_call) { ->(headers) { patch "/v3/tasks/#{task_guid}", request_body, headers } }
       let(:expected_codes_and_responses) do
-        h = Hash.new(code: 403, errors: CF_NOT_AUTHORIZED)
+        h = Hash.new({ code: 403, errors: CF_NOT_AUTHORIZED }.freeze)
         %w[no_role org_auditor org_billing_manager].each { |r| h[r] = { code: 404 } }
         %w[admin space_developer].each { |r| h[r] = { code: 200 } }
         h
@@ -660,7 +660,7 @@ RSpec.describe 'Tasks' do
       }
     end
     let(:expected_codes_and_responses) do
-      h = Hash.new(code: 403, errors: CF_NOT_AUTHORIZED)
+      h = Hash.new({ code: 403, errors: CF_NOT_AUTHORIZED }.freeze)
       h['org_auditor'] = h['org_billing_manager'] = h['no_role'] = { code: 404 }
       h['admin'] = h['space_developer'] = h['space_supporter'] = {
         code: 202,
@@ -801,7 +801,7 @@ RSpec.describe 'Tasks' do
             ]
           }
 
-        parsed_response = MultiJson.load(last_response.body)
+        parsed_response = Oj.load(last_response.body)
 
         expect(last_response.status).to eq(200)
         expect(parsed_response).to be_a_response_like(expected_response)
@@ -901,7 +901,7 @@ RSpec.describe 'Tasks' do
       let(:expected_response_with_command) { expected_response.map { |task| task.merge({ 'command' => 'echo task' }) } }
 
       let(:expected_codes_and_responses) do
-        h = Hash.new(code: 200, response_objects: expected_response)
+        h = Hash.new({ code: 200, response_objects: expected_response }.freeze)
         h['admin'] = h['admin_read_only'] = h['space_developer'] = { code: 200, response_objects: expected_response_with_command }
         h['org_auditor'] = h['org_billing_manager'] = h['no_role'] = { code: 404 }
         h
@@ -920,7 +920,7 @@ RSpec.describe 'Tasks' do
 
         get "/v3/apps/#{app_model.guid}/tasks", nil, headers_for(make_auditor_for_space(space))
 
-        parsed_response = MultiJson.load(last_response.body)
+        parsed_response = Oj.load(last_response.body)
         expect(parsed_response['resources'][0]).not_to have_key('command')
       end
     end
@@ -938,7 +938,7 @@ RSpec.describe 'Tasks' do
 
         expected_query = 'names=task+one&page=1&per_page=50'
 
-        parsed_response = MultiJson.load(last_response.body)
+        parsed_response = Oj.load(last_response.body)
 
         expect(last_response.status).to eq(200)
         expect(parsed_response['resources'].pluck('guid')).to eq([expected_task.guid])
@@ -964,7 +964,7 @@ RSpec.describe 'Tasks' do
 
         expected_query = 'page=1&per_page=50&states=SUCCEEDED'
 
-        parsed_response = MultiJson.load(last_response.body)
+        parsed_response = Oj.load(last_response.body)
 
         expect(last_response.status).to eq(200)
         expect(parsed_response['resources'].pluck('guid')).to eq([expected_task.guid])
@@ -990,7 +990,7 @@ RSpec.describe 'Tasks' do
 
         expected_query = "page=1&per_page=50&sequence_ids=#{expected_task.sequence_id}"
 
-        parsed_response = MultiJson.load(last_response.body)
+        parsed_response = Oj.load(last_response.body)
 
         expect(last_response.status).to eq(200)
         expect(parsed_response['resources'].pluck('guid')).to eq([expected_task.guid])
@@ -1047,7 +1047,7 @@ RSpec.describe 'Tasks' do
     it 'creates a task for an app with an assigned current droplet' do
       post "/v3/apps/#{app_model.guid}/tasks", body.to_json, developer_headers
 
-      parsed_response = MultiJson.load(last_response.body)
+      parsed_response = Oj.load(last_response.body)
       guid            = parsed_response['guid']
       sequence_id     = parsed_response['sequence_id']
 
@@ -1196,7 +1196,7 @@ RSpec.describe 'Tasks' do
 
         post "/v3/apps/#{app_model.guid}/tasks", body.to_json, developer_headers
 
-        parsed_response = MultiJson.load(last_response.body)
+        parsed_response = Oj.load(last_response.body)
         guid            = parsed_response['guid']
 
         expect(last_response.status).to eq(202)
@@ -1278,7 +1278,7 @@ RSpec.describe 'Tasks' do
             }
           }
 
-          expect_any_instance_of(ActiveSupport::Logger).to receive(:info).with(JSON.generate(expected_json))
+          expect_any_instance_of(ActiveSupport::Logger).to receive(:info).with(Oj.dump(expected_json))
           post "/v3/apps/#{app_model.guid}/tasks", body.to_json, developer_headers
 
           expect(last_response.status).to eq(202)
@@ -1289,7 +1289,7 @@ RSpec.describe 'Tasks' do
     context 'permissions' do
       let(:api_call) { ->(headers) { post "/v3/apps/#{app_model.guid}/tasks", body.to_json, headers } }
       let(:expected_codes_and_responses) do
-        h = Hash.new(code: 403, errors: CF_NOT_AUTHORIZED)
+        h = Hash.new({ code: 403, errors: CF_NOT_AUTHORIZED }.freeze)
         %w[no_role org_auditor org_billing_manager].each { |r| h[r] = { code: 404 } }
         %w[admin space_developer].each { |r| h[r] = { code: 202 } }
         h

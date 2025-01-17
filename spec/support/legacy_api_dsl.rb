@@ -4,7 +4,7 @@ module LegacyApiDsl
   extend ActiveSupport::Concern
 
   def validate_response(model, json, expected_values: {}, ignored_attributes: [], expected_attributes: nil)
-    ignored_attributes.push :guid
+    ignored_attributes.push :guid, :options
     (expected_attributes || expected_attributes_for_model(model)).each do |expected_attribute|
       # refactor: pass exclusions, and figure out which are valid to not be there
       next if ignored_attributes.include? expected_attribute
@@ -59,7 +59,7 @@ module LegacyApiDsl
   def audited_event(event)
     attributes = event.columns.map do |column|
       if column == :metadata
-        { attribute_name: column.to_s, value: JSON.pretty_generate(JSON.parse(event[column])), is_json: true }
+        { attribute_name: column.to_s, value: Oj.dump(Oj.load(event[column])), is_json: true }
       else
         { attribute_name: column.to_s, value: event[column], is_json: false }
       end
@@ -76,7 +76,7 @@ module LegacyApiDsl
   end
 
   def fields_json(overrides={})
-    MultiJson.dump(required_fields.merge(overrides), pretty: true)
+    Oj.dump(required_fields.merge(overrides))
   end
 
   def required_fields
@@ -206,7 +206,7 @@ module LegacyApiDsl
       end
     end
 
-    def standard_list_parameters(controller, outer_model: nil, exclude_parameters: [], &block)
+    def standard_list_parameters(controller, outer_model: nil, exclude_parameters: [], &)
       query_parameters = controller.query_parameters - exclude_parameters
       unless query_parameters.empty?
         query_parameter_description = 'Parameters used to filter the result set.<br/>'
@@ -222,7 +222,7 @@ module LegacyApiDsl
         request_parameter :q, query_parameter_description, { html: true, example_values: examples }
       end
       pagination_parameters
-      instance_eval(&block) if block_given?
+      instance_eval(&) if block_given?
       request_parameter :'inline-relations-depth', "0 - don't inline any relations and return URLs.  Otherwise, inline to depth N.", deprecated: true
       request_parameter :'orphan-relations', '0 - de-duplicate object entries in response', deprecated: true
       request_parameter :'exclude-relations', 'comma-delimited list of relations to drop from response', deprecated: true

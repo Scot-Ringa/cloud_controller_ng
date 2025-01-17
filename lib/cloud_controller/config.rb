@@ -21,16 +21,8 @@ module VCAP::CloudController
 
     class << self
       def load_from_file(file_name, context: :api, secrets_hash: {})
-        config = VCAP::CloudController::YAMLConfig.safe_load_file(file_name)
-        config = deep_symbolize_keys_except_in_arrays(config)
-        secrets_hash = deep_symbolize_keys_except_in_arrays(secrets_hash)
-        config = config.deep_merge(secrets_hash)
-
-        schema_class = schema_class_for_context(context, config)
-        schema_class.validate(config)
-
-        hash = merge_defaults(config)
-        @instance = new(hash, context:)
+        config = read_file(file_name)
+        load_from_hash(config, context:, secrets_hash:)
       end
 
       def config
@@ -40,6 +32,22 @@ module VCAP::CloudController
       def schema_class_for_context(context, _config)
         module_name = 'Vms'
         const_get("VCAP::CloudController::ConfigSchemas::#{module_name}::#{context.to_s.camelize}Schema")
+      end
+
+      def read_file(file_name)
+        deep_symbolize_keys_except_in_arrays(VCAP::CloudController::YAMLConfig.safe_load_file(file_name)) || {}
+      end
+
+      def load_from_hash(config_hash, context: :api, secrets_hash: {})
+        config = deep_symbolize_keys_except_in_arrays(config_hash)
+        secrets_hash = deep_symbolize_keys_except_in_arrays(secrets_hash)
+        config = config.deep_merge(secrets_hash)
+
+        schema_class = schema_class_for_context(context, config)
+        schema_class.validate(config)
+
+        hash = merge_defaults(config)
+        @instance = new(hash, context:)
       end
 
       private
@@ -99,14 +107,7 @@ module VCAP::CloudController
     end
 
     def configure_components
-      Encryptor.db_encryption_key = get(:db_encryption_key)
-
-      if get(:database_encryption)
-        Encryptor.database_encryption_keys = get(:database_encryption)[:keys]
-        Encryptor.current_encryption_key_label = get(:database_encryption)[:current_key_label]
-        Encryptor.pbkdf2_hmac_iterations = get(:database_encryption)[:pbkdf2_hmac_iterations]
-      end
-
+      load_db_encryption_key
       dependency_locator = CloudController::DependencyLocator.instance
       dependency_locator.config = self
 
@@ -114,6 +115,16 @@ module VCAP::CloudController
 
       ProcessObserver.configure(dependency_locator.stagers, dependency_locator.runners)
       @schema_class.configure_components(self)
+    end
+
+    def load_db_encryption_key
+      Encryptor.db_encryption_key = get(:db_encryption_key)
+
+      return unless get(:database_encryption)
+
+      Encryptor.database_encryption_keys = get(:database_encryption)[:keys]
+      Encryptor.current_encryption_key_label = get(:database_encryption)[:current_key_label]
+      Encryptor.pbkdf2_hmac_iterations = get(:database_encryption)[:pbkdf2_hmac_iterations]
     end
 
     def get(*keys)
@@ -136,10 +147,6 @@ module VCAP::CloudController
       end
     end
 
-    def package_image_registry_configured?
-      !get(:packages, :image_registry).nil?
-    end
-
     private
 
     def invalid_config_path!(keys)
@@ -157,7 +164,7 @@ module VCAP::CloudController
         # When Rails is present, NewRelic adds itself to the Rails initializers instead
         # of initializing immediately.
 
-        opts = if (Rails.env.test? || Rails.env.development?) && !ENV['NRCONFIG']
+        opts = if Rails.env.local? && !ENV['NRCONFIG']
                  { env: ENV['NEW_RELIC_ENV'] || 'production', monitor_mode: false }
                else
                  { env: ENV['NEW_RELIC_ENV'] || 'production' }

@@ -42,6 +42,7 @@ module VCAP::CloudController
       add_connection_expiration_extension(db, opts)
       add_connection_validator_extension(db, opts)
       db.extension(:requires_unique_column_names_in_subquery)
+      add_connection_metrics_extension(db)
       db
     end
 
@@ -66,6 +67,15 @@ module VCAP::CloudController
       db.pool.connection_expiration_timeout = opts[:connection_expiration_timeout]
       db.pool.connection_expiration_random_delay = opts[:connection_expiration_random_delay] if opts[:connection_expiration_random_delay]
       # So that there are no existing connections without an expiration timestamp
+      db.disconnect
+    end
+
+    def self.add_connection_metrics_extension(db)
+      # only add the metrics for api processes. Otherwise e.g. rake db:migrate would also initialize metric updaters, which need additional config
+      return if Object.const_defined?(:RakeConfig)
+
+      db.extension(:connection_metrics)
+      # so that we gather connection metrics from the beginning
       db.disconnect
     end
 
@@ -112,7 +122,7 @@ class Sequel::Model
   #   if e.errors.on(:some_attribute).include(:unique)
 
   def default_validation_helpers_options(type)
-    val = super(type).deep_dup
+    val = super.deep_dup
     val[:message] = type
 
     val
@@ -148,6 +158,8 @@ end
 # the migration methods.
 module VCAP
   module Migration
+    PSQL_DEFAULT_STATEMENT_TIMEOUT = 30_000
+
     def self.timestamps(migration, table_key)
       created_at_idx = :"#{table_key}_created_at_index" if table_key
       updated_at_idx = :"#{table_key}_updated_at_index" if table_key
@@ -217,6 +229,29 @@ module VCAP
       elsif migration.class.name.match?(/postgres/i)
         Sequel.function(:get_uuid)
       end
+    end
+
+    # Concurrent migrations can take a long time to run, so this helper can be used to override 'max_migration_statement_runtime_in_seconds' for a specific migration.
+    # REF: https://www.postgresql.org/docs/current/sql-createindex.html#SQL-CREATEINDEX-CONCURRENTLY
+    def self.with_concurrent_timeout(db, &block)
+      concurrent_timeout_in_seconds = VCAP::CloudController::Config.config&.get(:migration_psql_concurrent_statement_timeout_in_seconds)
+      concurrent_timeout_in_milliseconds = if concurrent_timeout_in_seconds.nil? || concurrent_timeout_in_seconds <= 0
+                                             PSQL_DEFAULT_STATEMENT_TIMEOUT
+                                           else
+                                             concurrent_timeout_in_seconds * 1000
+                                           end
+
+      if db.database_type == :postgres
+        original_timeout = db.fetch("select setting from pg_settings where name = 'statement_timeout'").first[:setting]
+        db.run("SET statement_timeout TO #{concurrent_timeout_in_milliseconds}")
+      end
+      block.call
+    ensure
+      db.run("SET statement_timeout TO #{original_timeout}") if original_timeout
+    end
+
+    def self.logger
+      Steno.logger('cc.db.migrations')
     end
   end
 end

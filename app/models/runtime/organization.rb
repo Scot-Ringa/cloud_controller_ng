@@ -128,7 +128,7 @@ module VCAP::CloudController
       can_remove = ([user.spaces, user.audited_spaces, user.managed_spaces].flatten & spaces).empty?
       raise CloudController::Errors::ApiError.new_from_details('AssociationNotEmpty', 'user', 'spaces in the org') unless can_remove
 
-      super(user)
+      super
     end
 
     def remove_user_recursive(user)
@@ -205,6 +205,15 @@ module VCAP::CloudController
       validate_quota
 
       super
+    end
+
+    def around_save
+      yield
+    rescue Sequel::UniqueConstraintViolation => e
+      raise e unless e.message.include?('organizations_name_index')
+
+      errors.add(:name, :unique)
+      raise validation_failed_error
     end
 
     def validate

@@ -1,7 +1,7 @@
 require 'cloud_controller/encryptor'
 
 module VCAP::CloudController
-  shared_examples 'a model with an encrypted attribute' do
+  RSpec.shared_examples 'a model with an encrypted attribute' do
     before do
       allow(Encryptor).to receive(:database_encryption_keys).
         and_return({ Encryptor.current_encryption_key_label.to_sym => 'correct-key' })
@@ -26,7 +26,7 @@ module VCAP::CloudController
 
     it 'is encrypted before being written to the database' do
       saved_attribute = last_row[storage_column]
-      serialized_value = value_to_encrypt.is_a?(Hash) ? MultiJson.dump(value_to_encrypt) : value_to_encrypt
+      serialized_value = value_to_encrypt.is_a?(Hash) ? Oj.dump(value_to_encrypt) : value_to_encrypt
 
       expect(saved_attribute).not_to include serialized_value
     end
@@ -38,7 +38,7 @@ module VCAP::CloudController
     it 'uses the db_encryption_key from the config file' do
       saved_attribute = last_row[storage_column]
 
-      serialized_value = value_to_encrypt.is_a?(Hash) ? MultiJson.dump(value_to_encrypt) : value_to_encrypt
+      serialized_value = value_to_encrypt.is_a?(Hash) ? Oj.dump(value_to_encrypt) : value_to_encrypt
       expect(
         Encryptor.decrypt(saved_attribute, model.send(attr_salt), label: model.encryption_key_label, iterations: model.encryption_iterations)
       ).to include(serialized_value)

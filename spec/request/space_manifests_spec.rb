@@ -124,7 +124,7 @@ RSpec.describe 'Space Manifests' do
       let(:api_call) { ->(user_headers) { post "/v3/spaces/#{space.guid}/actions/apply_manifest", yml_manifest, yml_headers(user_headers) } }
       let(:org) { space.organization }
       let(:expected_codes_and_responses) do
-        h = Hash.new(code: 403, errors: CF_NOT_AUTHORIZED)
+        h = Hash.new({ code: 403, errors: CF_NOT_AUTHORIZED }.freeze)
         h['org_auditor'] = { code: 404 }
         h['org_billing_manager'] = { code: 404 }
         h['no_role'] = { code: 404 }
@@ -218,6 +218,124 @@ RSpec.describe 'Space Manifests' do
       )
     end
 
+    context 'when the manifest contains binary-encoded URL(s) for the buildpack(s)' do
+      context 'and it contains non-valid data' do
+        context 'in the buildpacks section' do
+          let(:app1_model) { VCAP::CloudController::AppModel.make(space:) }
+          let(:yml_manifest_with_binary_invalid_buildpacks) do
+            "---
+            applications:
+            - name: #{app1_model.name}
+              buildpacks:
+              - !!binary |-
+                  aHR0cHM6Ly9naXRodWIuY29tL2Nsb3VkZm91bmRyeS9uZ2lueC1idWlsZHBhY2suZ2l0ww=="
+          end
+
+          it 'returns an appropriate error' do
+            post "/v3/spaces/#{space.guid}/actions/apply_manifest", yml_manifest_with_binary_invalid_buildpacks, yml_headers(user_header)
+            expect(last_response.status).to eq(400)
+            parsed_response = Oj.load(last_response.body)
+            expect(parsed_response['errors'].first['detail']).to eq('Request invalid due to parse error: Invalid UTF-8 encoding in YAML data')
+          end
+        end
+
+        context 'in the buildpack part' do
+          let(:app1_model) { VCAP::CloudController::AppModel.make(space:) }
+          let(:yml_manifest_with_binary_invalid_buildpack) do
+            "---
+            applications:
+            - name: #{app1_model.name}
+              buildpack: !!binary |-
+                  aHR0cHM6Ly9naXRodWIuY29tL2Nsb3VkZm91bmRyeS9uZ2lueC1idWlsZHBhY2suZ2l0ww=="
+          end
+
+          it 'returns an appropriate error' do
+            post "/v3/spaces/#{space.guid}/actions/apply_manifest", yml_manifest_with_binary_invalid_buildpack, yml_headers(user_header)
+            expect(last_response.status).to eq(400)
+            parsed_response = Oj.load(last_response.body)
+            expect(parsed_response['errors'].first['detail']).to eq('Request invalid due to parse error: Invalid UTF-8 encoding in YAML data')
+          end
+        end
+
+        context 'mixed with valid data for the buildpacks' do
+          let(:app1_model) { VCAP::CloudController::AppModel.make(space:) }
+          let(:yml_manifest_with_binary_buildpacks) do
+            "---
+            applications:
+            - name: #{app1_model.name}
+              buildpacks:
+              - !!binary |-
+                  aHR0cHM6Ly9naXRodWIuY29tL2Nsb3VkZm91bmRyeS9uZ2lueC1idWlsZHBhY2suZ2l0
+              - !!binary |-
+                  aHR0cHM6Ly9naXRodWIuY29tL2Nsb3VkZm91bmRyeS9uZ2lueC1idWlsZHBhY2suZ2l0ww=="
+          end
+
+          it 'returns an appropriate error' do
+            post "/v3/spaces/#{space.guid}/actions/apply_manifest", yml_manifest_with_binary_buildpacks, yml_headers(user_header)
+            expect(last_response.status).to eq(400)
+            parsed_response = Oj.load(last_response.body)
+            expect(parsed_response['errors'].first['detail']).to eq('Request invalid due to parse error: Invalid UTF-8 encoding in YAML data')
+          end
+        end
+      end
+
+      context 'and it contains valid data' do
+        context 'for the buildpacks' do
+          let(:app1_model) { VCAP::CloudController::AppModel.make(space:) }
+          let(:yml_manifest_with_binary_valid_buildpacks) do
+            "---
+            applications:
+            - name: #{app1_model.name}
+              buildpacks:
+              - !!binary |-
+                  aHR0cHM6Ly9naXRodWIuY29tL2Nsb3VkZm91bmRyeS9uZ2lueC1idWlsZHBhY2suZ2l0
+              - !!binary |-
+                  aHR0cHM6Ly9naXRodWIuY29tL2J1aWxkcGFja3MvbXktc3BlY2lhbC1idWlsZHBhY2s="
+          end
+
+          it 'applies the manifest' do
+            post "/v3/spaces/#{space.guid}/actions/apply_manifest", yml_manifest_with_binary_valid_buildpacks, yml_headers(user_header)
+            expect(last_response.status).to eq(202)
+            job_guid = VCAP::CloudController::PollableJobModel.last.guid
+            expect(last_response.headers['Location']).to match(%r{/v3/jobs/#{job_guid}})
+
+            Delayed::Worker.new.work_off
+            expect(VCAP::CloudController::PollableJobModel.find(guid: job_guid)).to be_complete, VCAP::CloudController::PollableJobModel.find(guid: job_guid).cf_api_error
+
+            app1_model.reload
+            lifecycle_data = app1_model.lifecycle_data
+            expect(lifecycle_data.buildpacks.first).to include('https://github.com/cloudfoundry/nginx-buildpack.git')
+            expect(lifecycle_data.buildpacks.second).to include('https://github.com/buildpacks/my-special-buildpack')
+          end
+        end
+
+        context 'for single buildpack' do
+          let(:app1_model) { VCAP::CloudController::AppModel.make(space:) }
+          let(:yml_manifest_with_binary_valid_buildpack) do
+            "---
+            applications:
+            - name: #{app1_model.name}
+              buildpack: !!binary |-
+                  aHR0cHM6Ly9naXRodWIuY29tL2Nsb3VkZm91bmRyeS9uZ2lueC1idWlsZHBhY2suZ2l0"
+          end
+
+          it 'applies the manifest' do
+            post "/v3/spaces/#{space.guid}/actions/apply_manifest", yml_manifest_with_binary_valid_buildpack, yml_headers(user_header)
+            expect(last_response.status).to eq(202)
+            job_guid = VCAP::CloudController::PollableJobModel.last.guid
+            expect(last_response.headers['Location']).to match(%r{/v3/jobs/#{job_guid}})
+
+            Delayed::Worker.new.work_off
+            expect(VCAP::CloudController::PollableJobModel.find(guid: job_guid)).to be_complete, VCAP::CloudController::PollableJobModel.find(guid: job_guid).cf_api_error
+
+            app1_model.reload
+            lifecycle_data = app1_model.lifecycle_data
+            expect(lifecycle_data.buildpacks.first).to include('https://github.com/cloudfoundry/nginx-buildpack.git')
+          end
+        end
+      end
+    end
+
     context 'service bindings' do
       let(:client) { instance_double(VCAP::Services::ServiceBrokers::V2::Client, bind: {}) }
 
@@ -231,7 +349,7 @@ RSpec.describe 'Space Manifests' do
 
         job_location = last_response.headers['Location']
         get job_location, nil, user_header
-        parsed_response = MultiJson.load(last_response.body)
+        parsed_response = Oj.load(last_response.body)
 
         expect(parsed_response['errors'].first['detail']).to eq("For application '#{app1_model.name}': For service '#{service_instance_1.name}': Failed")
       end
@@ -488,7 +606,7 @@ RSpec.describe 'Space Manifests' do
       before do
         app1_model.web_processes.first.update(state: VCAP::CloudController::ProcessModel::STARTED, instances: 4)
         space.update(space_quota_definition:
-          VCAP::CloudController::SpaceQuotaDefinition.make(organization: space.organization, log_rate_limit: 0))
+                       VCAP::CloudController::SpaceQuotaDefinition.make(organization: space.organization, log_rate_limit: 0))
       end
 
       it 'successfully applies the manifest' do
@@ -503,6 +621,234 @@ RSpec.describe 'Space Manifests' do
         # job does not restart app, so applying the manifest succeeds
         expect(VCAP::CloudController::PollableJobModel.find(guid: job_guid)).to be_complete,
                                                                                 VCAP::CloudController::PollableJobModel.find(guid: job_guid).cf_api_error
+      end
+    end
+
+    describe 'route options' do
+      context 'when an invalid route option is provided' do
+        let(:yml_manifest) do
+          {
+            'applications' => [
+              {
+                'name' => app1_model.name,
+                'routes' => [
+                  { 'route' => "https://#{route.host}.#{route.domain.name}",
+                    'options' => {
+                      'doesnt-exist' => 'doesnt-exist'
+                    } }
+                ]
+              }
+            ]
+          }.to_yaml
+        end
+
+        it 'returns a 422' do
+          post "/v3/spaces/#{space.guid}/actions/apply_manifest", yml_manifest, yml_headers(user_header)
+
+          expect(last_response).to have_status_code(422)
+          expect(last_response).to have_error_message("For application '#{app1_model.name}': \
+Route 'https://#{route.host}.#{route.domain.name}' contains invalid route option 'doesnt-exist'. Valid keys: 'loadbalancing'")
+        end
+      end
+
+      context 'updating existing route options' do
+        # using loadbalancing as an example since it is the only route option currently supported
+        before do
+          yml_manifest = {
+            'applications' => [
+              { 'name' => app1_model.name,
+                'routes' => [
+                  { 'route' => "https://#{route.host}.#{shared_domain.name}",
+                    'options' => {
+                      'loadbalancing' => 'round-robin'
+                    } }
+                ] }
+            ]
+          }.to_yaml
+
+          # apply the manifest with the route option
+          post "/v3/spaces/#{space.guid}/actions/apply_manifest", yml_manifest, yml_headers(user_header)
+
+          expect(last_response.status).to eq(202)
+          job_guid = VCAP::CloudController::PollableJobModel.last.guid
+
+          Delayed::Worker.new.work_off
+          expect(VCAP::CloudController::PollableJobModel.find(guid: job_guid)).to be_complete, VCAP::CloudController::PollableJobModel.find(guid: job_guid).cf_api_error
+          app1_model.reload
+          expect(app1_model.routes.first.options).to eq({ 'loadbalancing' => 'round-robin' })
+        end
+
+        it 'updates the route option when a new value is provided' do
+          yml_manifest = {
+            'applications' => [
+              { 'name' => app1_model.name,
+                'routes' => [
+                  { 'route' => "https://#{route.host}.#{shared_domain.name}",
+                    'options' => {
+                      'loadbalancing' => 'least-connections'
+                    } }
+                ] }
+            ]
+          }.to_yaml
+
+          post "/v3/spaces/#{space.guid}/actions/apply_manifest", yml_manifest, yml_headers(user_header)
+
+          expect(last_response.status).to eq(202)
+          job_guid = VCAP::CloudController::PollableJobModel.last.guid
+
+          Delayed::Worker.new.work_off
+          expect(VCAP::CloudController::PollableJobModel.find(guid: job_guid)).to be_complete, VCAP::CloudController::PollableJobModel.find(guid: job_guid).cf_api_error
+          app1_model.reload
+          expect(app1_model.routes.first.options).to eq({ 'loadbalancing' => 'least-connections' })
+        end
+
+        it 'does not modify any route options when the options hash is not provided' do
+          yml_manifest = {
+            'applications' => [
+              { 'name' => app1_model.name,
+                'routes' => [
+                  { 'route' => "https://#{route.host}.#{shared_domain.name}" }
+                ] }
+            ]
+          }.to_yaml
+
+          # apply the manifest with the route option
+          post "/v3/spaces/#{space.guid}/actions/apply_manifest", yml_manifest, yml_headers(user_header)
+
+          expect(last_response.status).to eq(202)
+          job_guid = VCAP::CloudController::PollableJobModel.last.guid
+
+          Delayed::Worker.new.work_off
+          expect(VCAP::CloudController::PollableJobModel.find(guid: job_guid)).to be_complete, VCAP::CloudController::PollableJobModel.find(guid: job_guid).cf_api_error
+          app1_model.reload
+          expect(app1_model.routes.first.options).to eq({ 'loadbalancing' => 'round-robin' })
+        end
+
+        it 'returns 422 when options: null is provided' do
+          yml_manifest = {
+            'applications' => [
+              { 'name' => app1_model.name,
+                'routes' => [
+                  { 'route' => "https://#{route.host}.#{shared_domain.name}",
+                    'options' => nil }
+                ] }
+            ]
+          }.to_yaml
+
+          # apply the manifest with the route option
+          post "/v3/spaces/#{space.guid}/actions/apply_manifest", yml_manifest, yml_headers(user_header)
+
+          expect(last_response.status).to eq(422)
+          expect(last_response).to have_error_message("For application '#{app1_model.name}': \
+Route 'https://#{route.host}.#{route.domain.name}': options must be an object")
+
+          job_guid = VCAP::CloudController::PollableJobModel.last.guid
+          Delayed::Worker.new.work_off
+          expect(VCAP::CloudController::PollableJobModel.find(guid: job_guid)).to be_complete, VCAP::CloudController::PollableJobModel.find(guid: job_guid).cf_api_error
+          app1_model.reload
+          expect(app1_model.routes.first.options).to eq({ 'loadbalancing' => 'round-robin' })
+        end
+
+        it 'does not modify any route options if an empty options hash is provided' do
+          yml_manifest = {
+            'applications' => [
+              { 'name' => app1_model.name,
+                'routes' => [
+                  { 'route' => "https://#{route.host}.#{shared_domain.name}",
+                    'options' => {} }
+                ] }
+            ]
+          }.to_yaml
+
+          # apply the manifest with the route option
+          post "/v3/spaces/#{space.guid}/actions/apply_manifest", yml_manifest, yml_headers(user_header)
+
+          expect(last_response.status).to eq(202)
+
+          app1_model.reload
+          expect(app1_model.routes.first.options).to eq({ 'loadbalancing' => 'round-robin' })
+        end
+
+        it 'returns 422 when { loadbalancing: null } is provided' do
+          yml_manifest = {
+            'applications' => [
+              { 'name' => app1_model.name,
+                'routes' => [
+                  { 'route' => "https://#{route.host}.#{shared_domain.name}",
+                    'options' => {
+                      'loadbalancing' => nil
+                    } }
+                ] }
+            ]
+          }.to_yaml
+
+          # apply the manifest with the route option
+          post "/v3/spaces/#{space.guid}/actions/apply_manifest", yml_manifest, yml_headers(user_header)
+
+          expect(last_response.status).to eq(422)
+          expect(last_response).to have_error_message("For application '#{app1_model.name}': \
+Invalid value for 'loadbalancing' for Route 'https://#{route.host}.#{route.domain.name}'; Valid values are: 'round-robin, least-connections'")
+
+          app1_model.reload
+          expect(app1_model.routes.first.options).to eq({ 'loadbalancing' => 'round-robin' })
+        end
+      end
+
+      context 'route-option: loadbalancing' do
+        context 'when the loadbalancing is not supported' do
+          let(:yml_manifest) do
+            {
+              'applications' => [
+                {
+                  'name' => app1_model.name,
+                  'routes' => [
+                    { 'route' => "https://#{route.host}.#{route.domain.name}",
+                      'options' => {
+                        'loadbalancing' => 'unsupported-lb-algorithm'
+                      } }
+                  ]
+                }
+              ]
+            }.to_yaml
+          end
+
+          it 'returns a 422' do
+            post "/v3/spaces/#{space.guid}/actions/apply_manifest", yml_manifest, yml_headers(user_header)
+
+            expect(last_response).to have_status_code(422)
+            expect(last_response).to have_error_message("For application '#{app1_model.name}': \
+Cannot use loadbalancing value 'unsupported-lb-algorithm' for Route 'https://#{route.host}.#{route.domain.name}'; Valid values are: 'round-robin, least-connections'")
+          end
+        end
+
+        context 'when the loadbalancing is supported' do
+          let(:yml_manifest) do
+            {
+              'applications' => [
+                { 'name' => app1_model.name,
+                  'routes' => [
+                    { 'route' => "https://#{route.host}.#{shared_domain.name}",
+                      'options' => {
+                        'loadbalancing' => 'round-robin'
+                      } }
+                  ] }
+              ]
+            }.to_yaml
+          end
+
+          it 'adds the loadbalancing' do
+            post "/v3/spaces/#{space.guid}/actions/apply_manifest", yml_manifest, yml_headers(user_header)
+
+            expect(last_response.status).to eq(202)
+            job_guid = VCAP::CloudController::PollableJobModel.last.guid
+
+            Delayed::Worker.new.work_off
+            expect(VCAP::CloudController::PollableJobModel.find(guid: job_guid)).to be_complete, VCAP::CloudController::PollableJobModel.find(guid: job_guid).cf_api_error
+
+            app1_model.reload
+            expect(app1_model.routes.first.options).to eq({ 'loadbalancing' => 'round-robin' })
+          end
+        end
       end
     end
 
@@ -580,7 +926,7 @@ RSpec.describe 'Space Manifests' do
         post "/v3/spaces/#{space.guid}/actions/apply_manifest", yml_manifest, yml_headers(user_header)
 
         expect(last_response.status).to eq(400)
-        parsed_response = MultiJson.load(last_response.body)
+        parsed_response = Oj.load(last_response.body)
         expect(parsed_response['errors'].first['detail']).to eq('Bad request: Manifest does not support Anchors and Aliases')
       end
     end
@@ -606,7 +952,7 @@ RSpec.describe 'Space Manifests' do
           post "/v3/spaces/#{space.guid}/actions/apply_manifest", yml_manifest_tempfile, yml_headers(user_header)
 
           expect(last_response.status).to eq(400)
-          parsed_response = MultiJson.load(last_response.body)
+          parsed_response = Oj.load(last_response.body)
           expect(parsed_response['errors'].first['detail']).to eq('Bad request: Manifest size is too large. The maximum supported size is 1MB.')
         end
       end
@@ -675,7 +1021,7 @@ RSpec.describe 'Space Manifests' do
 
       it 'does not include memory and disk changes in the diff' do
         post "/v3/spaces/#{space.guid}/manifest_diff", yml_manifest, yml_headers(user_header)
-        parsed_response = MultiJson.load(last_response.body)
+        parsed_response = Oj.load(last_response.body)
 
         expect(last_response).to have_status_code(201)
         expect(parsed_response).to eq({ 'diff' => [
@@ -693,7 +1039,7 @@ RSpec.describe 'Space Manifests' do
 
       it 'returns an empty array' do
         post "/v3/spaces/#{space.guid}/manifest_diff", yml_manifest, yml_headers(user_header)
-        parsed_response = MultiJson.load(last_response.body)
+        parsed_response = Oj.load(last_response.body)
 
         expect(last_response).to have_status_code(201)
         expect(parsed_response).to eq({ 'diff' => [] })
@@ -728,7 +1074,7 @@ RSpec.describe 'Space Manifests' do
       let(:api_call) { ->(user_headers) { post "/v3/spaces/#{space.guid}/manifest_diff", yml_manifest, yml_headers(user_headers) } }
       let(:org) { space.organization }
       let(:expected_codes_and_responses) do
-        h = Hash.new(code: 403, errors: CF_NOT_AUTHORIZED)
+        h = Hash.new({ code: 403, errors: CF_NOT_AUTHORIZED }.freeze)
         h['org_auditor'] = { code: 404 }
         h['org_billing_manager'] = { code: 404 }
         h['no_role'] = { code: 404 }
@@ -798,7 +1144,7 @@ RSpec.describe 'Space Manifests' do
 
       it 'acts as if a new app is being pushed and returns all fields of the app as additions' do
         post "/v3/spaces/#{space.guid}/manifest_diff", yml_manifest, yml_headers(user_header)
-        parsed_response = MultiJson.load(last_response.body)
+        parsed_response = Oj.load(last_response.body)
 
         expect(last_response).to have_status_code(201)
         expect(parsed_response).to eq({ 'diff' => [
@@ -856,7 +1202,7 @@ RSpec.describe 'Space Manifests' do
 
       it 'returns a diff with the process changes as replace ops' do
         post "/v3/spaces/#{space.guid}/manifest_diff", manifest_with_changes, yml_headers(user_header)
-        parsed_response = MultiJson.load(last_response.body)
+        parsed_response = Oj.load(last_response.body)
 
         expect(last_response).to have_status_code(201)
         expect(parsed_response['diff']).to include(*expected_changes)
@@ -909,7 +1255,7 @@ RSpec.describe 'Space Manifests' do
         }]
         sidecar_manifest['applications'][0]['sidecars'] = new_sidecars
         post "/v3/spaces/#{space.guid}/manifest_diff", sidecar_manifest.to_yaml, yml_headers(user_header)
-        parsed_response = MultiJson.load(last_response.body)
+        parsed_response = Oj.load(last_response.body)
 
         expect(last_response).to have_status_code(201)
         expect(parsed_response['diff']).to include(*expected_changes)
@@ -955,7 +1301,7 @@ RSpec.describe 'Space Manifests' do
         }]
         sidecar_manifest['applications'][0]['sidecars'] = new_sidecars
         post "/v3/spaces/#{space.guid}/manifest_diff", sidecar_manifest.to_yaml, yml_headers(user_header)
-        parsed_response = MultiJson.load(last_response.body)
+        parsed_response = Oj.load(last_response.body)
 
         expect(last_response).to have_status_code(201)
         expect(parsed_response).to eq({ 'diff' => [] })
@@ -1000,7 +1346,7 @@ RSpec.describe 'Space Manifests' do
 
       it 'returns a diff that only contains ordering information without any removals' do
         post "/v3/spaces/#{space.guid}/manifest_diff", yml_manifest, yml_headers(user_header)
-        parsed_response = MultiJson.load(last_response.body)
+        parsed_response = Oj.load(last_response.body)
 
         expect(last_response).to have_status_code(201)
         expect(parsed_response).to eq('diff' => [{ 'from' => '/0', 'op' => 'move', 'path' => '/applications/0/processes/1' }])
@@ -1027,7 +1373,7 @@ RSpec.describe 'Space Manifests' do
 
       it 'returns a diff that reflects the change at the app level' do
         post "/v3/spaces/#{space.guid}/manifest_diff", yml_manifest, yml_headers(user_header)
-        parsed_response = MultiJson.load(last_response.body)
+        parsed_response = Oj.load(last_response.body)
 
         expect(last_response).to have_status_code(201)
         expect(parsed_response).to eq('diff' => [])
@@ -1053,7 +1399,7 @@ RSpec.describe 'Space Manifests' do
 
         it 'returns an appropriate error' do
           post "/v3/spaces/#{space.guid}/manifest_diff", yml_manifest, yml_headers(user_header)
-          parsed_response = MultiJson.load(last_response.body)
+          parsed_response = Oj.load(last_response.body)
 
           expect(last_response).to have_status_code(422)
           expect(parsed_response['errors'].first['detail']).to eq("Cannot parse manifest with no 'applications' field.")
@@ -1069,7 +1415,7 @@ RSpec.describe 'Space Manifests' do
 
         it 'returns an appropriate error' do
           post "/v3/spaces/#{space.guid}/manifest_diff", yml_manifest, yml_headers(user_header)
-          parsed_response = MultiJson.load(last_response.body)
+          parsed_response = Oj.load(last_response.body)
 
           expect(last_response).to have_status_code(400)
           expect(parsed_response['errors'].first['detail']).to eq('Request invalid due to parse error: invalid request body')
@@ -1090,7 +1436,7 @@ RSpec.describe 'Space Manifests' do
 
         it 'returns an appropriate error' do
           post "/v3/spaces/#{space.guid}/manifest_diff", yml_manifest, yml_headers(user_header)
-          parsed_response = MultiJson.load(last_response.body)
+          parsed_response = Oj.load(last_response.body)
 
           expect(last_response).to have_status_code(422)
           expect(parsed_response['errors'].first['detail']).to eq('Unsupported manifest schema version. Currently supported versions: [1].')
@@ -1112,7 +1458,7 @@ RSpec.describe 'Space Manifests' do
           headers = yml_headers(user_header)
           headers.delete('CONTENT_TYPE')
           post "/v3/spaces/#{space.guid}/manifest_diff", yml_manifest, headers
-          parsed_response = MultiJson.load(last_response.body)
+          parsed_response = Oj.load(last_response.body)
 
           expect(last_response).to have_status_code(400)
           expect(parsed_response['errors'].first['detail']).to eq('Bad request: Content-Type must be yaml')
@@ -1136,7 +1482,7 @@ RSpec.describe 'Space Manifests' do
 
           post "/v3/spaces/#{space.guid}/manifest_diff", yml_manifest, headers
 
-          parsed_response = MultiJson.load(last_response.body)
+          parsed_response = Oj.load(last_response.body)
 
           expect(last_response).to have_status_code(400)
           expect(parsed_response['errors'].first['detail']).to eq('Bad request: Content-Type must be yaml')
@@ -1157,7 +1503,7 @@ RSpec.describe 'Space Manifests' do
 
         it 'returns an appropriate error' do
           post "/v3/spaces/#{space.guid}/manifest_diff", yml_manifest, yml_headers(user_header)
-          parsed_response = MultiJson.load(last_response.body)
+          parsed_response = Oj.load(last_response.body)
 
           expect(last_response).to have_status_code(422)
           expect(parsed_response['errors'].first['detail']).to eq("For application 'new-app': Stack must be a string")
@@ -1205,7 +1551,7 @@ RSpec.describe 'Space Manifests' do
         post "/v3/spaces/#{space.guid}/manifest_diff", yml_manifest, yml_headers(user_header)
 
         expect(last_response.status).to eq(400)
-        parsed_response = MultiJson.load(last_response.body)
+        parsed_response = Oj.load(last_response.body)
         expect(parsed_response['errors'].first['detail']).to eq('Bad request: Manifest does not support Anchors and Aliases')
       end
     end

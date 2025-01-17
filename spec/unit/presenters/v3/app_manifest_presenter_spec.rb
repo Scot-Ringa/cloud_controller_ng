@@ -21,7 +21,7 @@ module VCAP::CloudController::Presenters::V3
           it 'only returns the application name and stack' do
             result = AppManifestPresenter.new(app, service_bindings, route_mappings).to_hash
             application = result[:applications].first
-            expect(application).to eq({ name: app.name, stack: app.lifecycle_data.stack })
+            expect(application).to eq({ lifecycle: 'buildpack', name: app.name, stack: app.lifecycle_data.stack })
           end
         end
 
@@ -36,7 +36,7 @@ module VCAP::CloudController::Presenters::V3
           it 'only returns application name' do
             result = AppManifestPresenter.new(app, service_bindings, route_mappings).to_hash
             application = result[:applications].first
-            expect(application).to eq({ name: app.name })
+            expect(application).to eq({ lifecycle: 'docker', name: app.name })
           end
         end
 
@@ -111,8 +111,8 @@ module VCAP::CloudController::Presenters::V3
             service_instance2.name
           ])
           expect(application[:routes]).to eq([
-            { route: route.uri, protocol: 'http1' },
-            { route: route2.uri, protocol: 'http1' }
+            { route: route.uri, protocol: 'http1', options: {} },
+            { route: route2.uri, protocol: 'http1', options: {} }
           ])
           expect(application[:env]).to match({ 'one' => 'potato', 'two' => 'tomato' })
           expect(application[:metadata]).to match({ labels: { 'potato' => 'idaho' }, annotations: { 'style' => 'mashed' } })

@@ -13,8 +13,7 @@ module VCAP::CloudController
           show_secrets: false,
           censored_message: Censorship::REDACTED_CREDENTIAL
         )
-
-          super(resource, show_secrets:, censored_message:)
+          super
         end
 
         def to_hash

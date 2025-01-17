@@ -89,6 +89,7 @@ RSpec.describe 'Routes Request' do
           labels: {},
           annotations: {}
         },
+        options: {},
         links: {
           self: { href: %r{#{Regexp.escape(link_prefix)}/v3/routes/#{route_in_org.guid}} },
           space: { href: %r{#{Regexp.escape(link_prefix)}/v3/spaces/#{route_in_org.space.guid}} },
@@ -121,6 +122,7 @@ RSpec.describe 'Routes Request' do
           labels: {},
           annotations: {}
         },
+        options: {},
         links: {
           self: { href: %r{#{Regexp.escape(link_prefix)}/v3/routes/#{route_in_other_org.guid}} },
           space: { href: %r{#{Regexp.escape(link_prefix)}/v3/spaces/#{route_in_other_org.space.guid}} },
@@ -170,8 +172,8 @@ RSpec.describe 'Routes Request' do
     context 'when the user is a member in the routes org' do
       let(:expected_codes_and_responses) do
         h = Hash.new(
-          code: 200,
-          response_objects: [route_in_org_json]
+          { code: 200,
+            response_objects: [route_in_org_json] }.freeze
         )
 
         h['admin'] = { code: 200, response_objects: [route_in_org_json, route_in_other_org_json] }
@@ -305,6 +307,7 @@ RSpec.describe 'Routes Request' do
                 }
               }
             },
+            options: {},
             links: {
               self: { href: "http://api2.vcap.me/v3/routes/#{route1_domain1.guid}" },
               space: { href: "http://api2.vcap.me/v3/spaces/#{space.guid}" },
@@ -356,6 +359,30 @@ RSpec.describe 'Routes Request' do
                                            })
         end
       end
+
+      context 'when including spaces' do
+        it 'eagerly loads spaces to efficiently access space_guid' do
+          expect(VCAP::CloudController::IncludeSpaceDecorator).to receive(:decorate) do |_, resources|
+            expect(resources).not_to be_empty
+            resources.each { |r| expect(r.associations).to include(:space) }
+          end
+
+          get '/v3/routes?include=space', nil, admin_header
+          expect(last_response).to have_status_code(200)
+        end
+      end
+
+      context 'when including orgs' do
+        it 'eagerly loads spaces to efficiently access space.organization_id' do
+          expect(VCAP::CloudController::IncludeOrganizationDecorator).to receive(:decorate) do |_, resources|
+            expect(resources).not_to be_empty
+            resources.each { |r| expect(r.associations).to include(:space) }
+          end
+
+          get '/v3/routes?include=space.organization', nil, admin_header
+          expect(last_response).to have_status_code(200)
+        end
+      end
     end
 
     describe 'filters' do
@@ -392,6 +419,7 @@ RSpec.describe 'Routes Request' do
               }
             }
           },
+          options: {},
           links: {
             self: { href: 'http://api2.vcap.me/v3/routes/route-without-host' },
             space: { href: "http://api2.vcap.me/v3/spaces/#{space.guid}" },
@@ -427,6 +455,7 @@ RSpec.describe 'Routes Request' do
               }
             }
           },
+          options: {},
           links: {
             self: { href: 'http://api2.vcap.me/v3/routes/route-without-host2' },
             space: { href: "http://api2.vcap.me/v3/spaces/#{space.guid}" },
@@ -465,6 +494,7 @@ RSpec.describe 'Routes Request' do
               }
             }
           },
+          options: {},
           links: {
             self: { href: 'http://api2.vcap.me/v3/routes/route-without-path' },
             space: { href: "http://api2.vcap.me/v3/spaces/#{space.guid}" },
@@ -652,7 +682,7 @@ RSpec.describe 'Routes Request' do
           get '/v3/routes?label_selector=animal in (dog)', nil, admin_header
 
           expect(last_response).to have_status_code(200), last_response.body
-          parsed_response = MultiJson.load(last_response.body)
+          parsed_response = Oj.load(last_response.body)
 
           expected_pagination = {
             'total_results' => 1,
@@ -671,7 +701,7 @@ RSpec.describe 'Routes Request' do
           get "/v3/routes?label_selector=animal in (dog)&space_guids=#{space.guid}", nil, admin_header
 
           expect(last_response).to have_status_code(200)
-          parsed_response = MultiJson.load(last_response.body)
+          parsed_response = Oj.load(last_response.body)
 
           expected_pagination = {
             'total_results' => 1,
@@ -690,7 +720,7 @@ RSpec.describe 'Routes Request' do
           get "/v3/routes?label_selector=animal in (dog)&organization_guids=#{org.guid}", nil, admin_header
 
           expect(last_response).to have_status_code(200), last_response.body
-          parsed_response = MultiJson.load(last_response.body)
+          parsed_response = Oj.load(last_response.body)
 
           expected_pagination = {
             'total_results' => 1,
@@ -709,7 +739,7 @@ RSpec.describe 'Routes Request' do
           get "/v3/routes?label_selector=animal in (dog)&domain_guids=#{domain1.guid}", nil, admin_header
 
           expect(last_response).to have_status_code(200), last_response.body
-          parsed_response = MultiJson.load(last_response.body)
+          parsed_response = Oj.load(last_response.body)
 
           expected_pagination = {
             'total_results' => 1,
@@ -728,7 +758,7 @@ RSpec.describe 'Routes Request' do
           get '/v3/routes?label_selector=animal in (dog)&hosts=hall', nil, admin_header
 
           expect(last_response).to have_status_code(200), last_response.body
-          parsed_response = MultiJson.load(last_response.body)
+          parsed_response = Oj.load(last_response.body)
 
           expected_pagination = {
             'total_results' => 1,
@@ -747,7 +777,7 @@ RSpec.describe 'Routes Request' do
           get '/v3/routes?label_selector=animal in (dog)&paths=/oates', nil, admin_header
 
           expect(last_response).to have_status_code(200)
-          parsed_response = MultiJson.load(last_response.body)
+          parsed_response = Oj.load(last_response.body)
 
           expected_pagination = {
             'total_results' => 1,
@@ -767,7 +797,7 @@ RSpec.describe 'Routes Request' do
       it 'returns a 200 and the filtered routes for "notin" label selector' do
         get '/v3/routes?label_selector=animal notin (dog)', nil, admin_header
 
-        parsed_response = MultiJson.load(last_response.body)
+        parsed_response = Oj.load(last_response.body)
 
         expected_pagination = {
           'total_results' => 3,
@@ -786,7 +816,7 @@ RSpec.describe 'Routes Request' do
       it 'returns a 200 and the filtered routes for "=" label selector' do
         get '/v3/routes?label_selector=animal=dog', nil, admin_header
 
-        parsed_response = MultiJson.load(last_response.body)
+        parsed_response = Oj.load(last_response.body)
 
         expected_pagination = {
           'total_results' => 1,
@@ -805,7 +835,7 @@ RSpec.describe 'Routes Request' do
       it 'returns a 200 and the filtered domains for "==" label selector' do
         get '/v3/routes?label_selector=animal==dog', nil, admin_header
 
-        parsed_response = MultiJson.load(last_response.body)
+        parsed_response = Oj.load(last_response.body)
 
         expected_pagination = {
           'total_results' => 1,
@@ -824,7 +854,7 @@ RSpec.describe 'Routes Request' do
       it 'returns a 200 and the filtered routes for "!=" label selector' do
         get '/v3/routes?label_selector=animal!=dog', nil, admin_header
 
-        parsed_response = MultiJson.load(last_response.body)
+        parsed_response = Oj.load(last_response.body)
 
         expected_pagination = {
           'total_results' => 3,
@@ -843,7 +873,7 @@ RSpec.describe 'Routes Request' do
       it 'returns a 200 and the filtered routes for "=" label selector' do
         get '/v3/routes?label_selector=animal=cow,santa=claus', nil, admin_header
 
-        parsed_response = MultiJson.load(last_response.body)
+        parsed_response = Oj.load(last_response.body)
 
         expected_pagination = {
           'total_results' => 1,
@@ -862,7 +892,7 @@ RSpec.describe 'Routes Request' do
       it 'returns a 200 and the filtered routes for existence label selector' do
         get '/v3/routes?label_selector=santa', nil, admin_header
 
-        parsed_response = MultiJson.load(last_response.body)
+        parsed_response = Oj.load(last_response.body)
 
         expected_pagination = {
           'total_results' => 1,
@@ -881,7 +911,7 @@ RSpec.describe 'Routes Request' do
       it 'returns a 200 and the filtered routes for non-existence label selector' do
         get '/v3/routes?label_selector=!santa', nil, admin_header
 
-        parsed_response = MultiJson.load(last_response.body)
+        parsed_response = Oj.load(last_response.body)
 
         expected_pagination = {
           'total_results' => 3,
@@ -953,6 +983,7 @@ RSpec.describe 'Routes Request' do
           labels: {},
           annotations: {}
         },
+        options: {},
         links: {
           self: { href: %r{#{Regexp.escape(link_prefix)}/v3/routes/#{UUID_REGEX}} },
           space: { href: %r{#{Regexp.escape(link_prefix)}/v3/spaces/#{route.space.guid}} },
@@ -965,8 +996,8 @@ RSpec.describe 'Routes Request' do
     context 'when the user is a member in the routes org' do
       let(:expected_codes_and_responses) do
         h = Hash.new(
-          code: 200,
-          response_object: route_json
+          { code: 200,
+            response_object: route_json }.freeze
         )
 
         h['org_billing_manager'] = { code: 404 }
@@ -1038,6 +1069,7 @@ RSpec.describe 'Routes Request' do
               labels: {},
               annotations: {}
             },
+            options: {},
             links: {
               self: { href: %r{#{Regexp.escape(link_prefix)}/v3/routes/#{UUID_REGEX}} },
               space: { href: %r{#{Regexp.escape(link_prefix)}/v3/spaces/#{route.space.guid}} },
@@ -1067,6 +1099,21 @@ RSpec.describe 'Routes Request' do
               org_json_generator.call(org)
             ]
           )
+        end
+
+        context 'user is org_auditor' do
+          let(:user_header) { set_user_with_header_as_role(user: user, role: 'org_auditor', org: org) }
+
+          it 'includes the unique organizations for the routes, but no spaces' do
+            get "/v3/routes/#{route.guid}?include=space,space.organization", nil, user_header
+            expect(last_response).to have_status_code(200)
+            expect(parsed_response['included']).to match_json_response(
+              'spaces' => [],
+              'organizations' => [
+                org_json_generator.call(org)
+              ]
+            )
+          end
         end
       end
     end
@@ -1174,7 +1221,8 @@ RSpec.describe 'Routes Request' do
             metadata: {
               labels: {},
               annotations: {}
-            }
+            },
+            options: {}
           }
         end
 
@@ -1183,7 +1231,7 @@ RSpec.describe 'Routes Request' do
 
           let(:expected_codes_and_responses) do
             h = Hash.new(
-              code: 403
+              { code: 403 }.freeze
             )
             h['admin'] = {
               code: 201,
@@ -1220,7 +1268,8 @@ RSpec.describe 'Routes Request' do
             metadata: {
               labels: { potato: 'yam' },
               annotations: { style: 'mashed' }
-            }
+            },
+            options: {}
           }
         end
 
@@ -1252,7 +1301,8 @@ RSpec.describe 'Routes Request' do
             metadata: {
               labels: { potato: 'yam' },
               annotations: { style: 'mashed' }
-            }
+            },
+            options: {}
           }
         end
 
@@ -1262,7 +1312,7 @@ RSpec.describe 'Routes Request' do
 
             let(:expected_codes_and_responses) do
               h = Hash.new(
-                code: 403
+                { code: 403 }.freeze
               )
               h['admin'] = {
                 code: 201,
@@ -1337,7 +1387,8 @@ RSpec.describe 'Routes Request' do
             metadata: {
               labels: {},
               annotations: {}
-            }
+            },
+            options: {}
           }
         end
 
@@ -1346,7 +1397,7 @@ RSpec.describe 'Routes Request' do
 
           let(:expected_codes_and_responses) do
             h = Hash.new(
-              code: 403
+              { code: 403 }.freeze
             )
             h['admin'] = {
               code: 201,
@@ -1435,7 +1486,8 @@ RSpec.describe 'Routes Request' do
             metadata: {
               labels: {},
               annotations: {}
-            }
+            },
+            options: {}
           }
         end
 
@@ -1444,7 +1496,7 @@ RSpec.describe 'Routes Request' do
 
           let(:expected_codes_and_responses) do
             h = Hash.new(
-              code: 403
+              { code: 403 }.freeze
             )
             h['admin'] = {
               code: 201,
@@ -1508,7 +1560,8 @@ RSpec.describe 'Routes Request' do
             metadata: {
               labels: {},
               annotations: {}
-            }
+            },
+            options: {}
           }
         end
 
@@ -1517,7 +1570,7 @@ RSpec.describe 'Routes Request' do
 
           let(:expected_codes_and_responses) do
             h = Hash.new(
-              code: 403
+              { code: 403 }.freeze
             )
             h['admin'] = {
               code: 201,
@@ -1595,13 +1648,14 @@ RSpec.describe 'Routes Request' do
             metadata: {
               labels: {},
               annotations: {}
-            }
+            },
+            options: {}
           }
         end
 
         let(:expected_codes_and_responses) do
           h = Hash.new(
-            code: 403
+            { code: 403 }.freeze
           )
           h['admin'] = {
             code: 201,
@@ -1735,7 +1789,8 @@ RSpec.describe 'Routes Request' do
             space: { href: %r{#{Regexp.escape(link_prefix)}/v3/spaces/#{space.guid}} },
             destinations: { href: %r{#{Regexp.escape(link_prefix)}/v3/routes/#{UUID_REGEX}/destinations} },
             domain: { href: %r{#{Regexp.escape(link_prefix)}/v3/domains/#{domain.guid}} }
-          }
+          },
+          options: {}
         }
       end
 
@@ -1743,7 +1798,7 @@ RSpec.describe 'Routes Request' do
         let(:api_call) { ->(user_headers) { post '/v3/routes', params.to_json, user_headers } }
 
         let(:expected_codes_and_responses) do
-          h = Hash.new(code: 403, errors: CF_NOT_AUTHORIZED)
+          h = Hash.new({ code: 403, errors: CF_NOT_AUTHORIZED }.freeze)
           h['admin'] = {
             code: 201,
             response_object: route_json
@@ -1847,7 +1902,8 @@ RSpec.describe 'Routes Request' do
             metadata: {
               labels: {},
               annotations: {}
-            }
+            },
+            options: {}
           }
         end
 
@@ -1856,7 +1912,7 @@ RSpec.describe 'Routes Request' do
 
           let(:expected_codes_and_responses) do
             h = Hash.new(
-              code: 403
+              { code: 403 }.freeze
             )
             h['admin'] = {
               code: 201,
@@ -2080,13 +2136,14 @@ RSpec.describe 'Routes Request' do
             space: { href: %r{#{Regexp.escape(link_prefix)}/v3/spaces/#{space.guid}} },
             destinations: { href: %r{#{Regexp.escape(link_prefix)}/v3/routes/#{UUID_REGEX}/destinations} },
             domain: { href: %r{#{Regexp.escape(link_prefix)}/v3/domains/#{domain.guid}} }
-          }
+          },
+          options: {}
         }
       end
 
       let(:expected_codes_and_responses) do
         h = Hash.new(
-          code: 403
+          { code: 403 }.freeze
         )
         h['admin'] = {
           code: 201,
@@ -2396,13 +2453,14 @@ RSpec.describe 'Routes Request' do
             potato: 'russet',
             style: 'fried'
           }
-        }
+        },
+        options: {}
       }
     end
 
     context 'when the user logged in' do
       let(:expected_codes_and_responses) do
-        h = Hash.new(code: 403, errors: CF_NOT_AUTHORIZED)
+        h = Hash.new({ code: 403, errors: CF_NOT_AUTHORIZED }.freeze)
         h['admin'] = { code: 200, response_object: route_json }
         h['no_role'] = { code: 404 }
         h['org_billing_manager'] = { code: 404 }
@@ -2467,11 +2525,12 @@ RSpec.describe 'Routes Request' do
               potato: 'russet',
               style: 'fried'
             }
-          }
+          },
+          options: {}
         }
       end
       let(:expected_codes_and_responses) do
-        h = Hash.new(code: 404)
+        h = Hash.new({ code: 404 }.freeze)
         h['admin'] = {
           code: 200,
           response_object: route_json
@@ -2564,7 +2623,7 @@ RSpec.describe 'Routes Request' do
 
     context 'when the user is a member in the routes org' do
       let(:expected_codes_and_responses) do
-        h = Hash.new(code: 403, errors: CF_NOT_AUTHORIZED)
+        h = Hash.new({ code: 403, errors: CF_NOT_AUTHORIZED }.freeze)
         h['org_billing_manager'] = { code: 404 }
         h['no_role'] = { code: 404 }
         h['admin'] = { code: 202 }
@@ -2636,16 +2695,16 @@ RSpec.describe 'Routes Request' do
     describe 'permissions' do
       it_behaves_like 'permissions for single object endpoint', ALL_PERMISSIONS do
         let(:expected_codes_and_responses) do
-          h = Hash.new(code: 200, response_object: {
-                         data: [
-                           {
-                             guid: target_space_1.guid
-                           }
-                         ],
-                         links: {
-                           self: { href: %r{#{Regexp.escape(link_prefix)}/v3/routes/#{route.guid}/relationships/shared_spaces} }
-                         }
-                       })
+          h = Hash.new({ code: 200, response_object: {
+            data: [
+              {
+                guid: target_space_1.guid
+              }
+            ],
+            links: {
+              self: { href: %r{#{Regexp.escape(link_prefix)}/v3/routes/#{route.guid}/relationships/shared_spaces} }
+            }
+          } }.freeze)
 
           h['org_billing_manager'] = { code: 404 }
           h['no_role'] = { code: 404 }
@@ -2722,7 +2781,7 @@ RSpec.describe 'Routes Request' do
 
     describe 'permissions' do
       let(:expected_codes_and_responses) do
-        h = Hash.new(code: 403, errors: CF_NOT_AUTHORIZED)
+        h = Hash.new({ code: 403, errors: CF_NOT_AUTHORIZED }.freeze)
 
         h['org_billing_manager'] = { code: 404 }
         h['no_role'] = { code: 404 }
@@ -3014,7 +3073,7 @@ RSpec.describe 'Routes Request' do
 
     describe 'permissions' do
       let(:expected_codes_and_responses) do
-        h = Hash.new(code: 403, errors: CF_NOT_AUTHORIZED)
+        h = Hash.new({ code: 403, errors: CF_NOT_AUTHORIZED }.freeze)
 
         h['org_billing_manager'] = { code: 404 }
         h['no_role'] = { code: 404 }
@@ -3246,7 +3305,7 @@ RSpec.describe 'Routes Request' do
 
     context 'when the user logged in' do
       let(:expected_codes_and_responses) do
-        h = Hash.new(code: 403, errors: CF_NOT_AUTHORIZED)
+        h = Hash.new({ code: 403, errors: CF_NOT_AUTHORIZED }.freeze)
         h['admin'] = { code: 200 }
         h['no_role'] = { code: 404 }
         h['org_billing_manager'] = { code: 404 }
@@ -3567,7 +3626,8 @@ RSpec.describe 'Routes Request' do
           space: { href: %r{#{Regexp.escape(link_prefix)}/v3/spaces/#{route1.space.guid}} },
           destinations: { href: %r{#{Regexp.escape(link_prefix)}/v3/routes/#{route1.guid}/destinations} },
           domain: { href: %r{#{Regexp.escape(link_prefix)}/v3/domains/#{route1.domain.guid}} }
-        }
+        },
+        options: {}
       }
     end
 
@@ -3610,15 +3670,16 @@ RSpec.describe 'Routes Request' do
           space: { href: %r{#{Regexp.escape(link_prefix)}/v3/spaces/#{route2.space.guid}} },
           destinations: { href: %r{#{Regexp.escape(link_prefix)}/v3/routes/#{route2.guid}/destinations} },
           domain: { href: %r{#{Regexp.escape(link_prefix)}/v3/domains/#{route2.domain.guid}} }
-        }
+        },
+        options: {}
       }
     end
 
     context 'when the user is a member in the app space' do
       let(:expected_codes_and_responses) do
         h = Hash.new(
-          code: 200,
-          response_objects: [route1_json, route2_json]
+          { code: 200,
+            response_objects: [route1_json, route2_json] }.freeze
         )
 
         h['org_auditor'] = { code: 404 }

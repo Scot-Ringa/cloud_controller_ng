@@ -16,6 +16,7 @@ module VCAP::CloudController
             external_protocol: String,
             internal_service_hostname: String,
             optional(:internal_service_port) => Integer,
+            optional(:warn_if_below_min_cli_version) => bool,
             info: {
               name: String,
               build: String,
@@ -35,6 +36,8 @@ module VCAP::CloudController
             app_domains: Array,
             disable_private_domain_cross_space_context_path_route_sharing: bool,
 
+            cpu_weight_min_memory: Integer,
+            cpu_weight_max_memory: Integer,
             default_app_memory: Integer,
             default_app_disk_in_mb: Integer,
             default_app_log_rate_limit_in_bytes_per_second: Integer,
@@ -55,13 +58,23 @@ module VCAP::CloudController
               optional(:ca_file) => String,
               :client_timeout => Integer,
               optional(:symmetric_secret) => String,
-              optional(:symmetric_secret2) => String
+              optional(:symmetric_secret2) => String,
+              optional(:clients) => enum([
+                {
+                  'name' => String,
+                  'id' => String,
+                  'secret' => String
+                }
+              ], NilClass)
             },
+
+            optional(:allow_user_creation_by_org_manager) => bool,
 
             logging: {
               level: String, # debug, info, etc.
               file: String, # Log file to use
               syslog: String, # Name to associate with syslog messages (should start with 'vcap.')
+              optional(:stdout_sink_enabled) => bool,
               optional(:anonymize_ips) => bool,
               optional(:format) => {
                 optional(:timestamp) => String
@@ -83,6 +96,9 @@ module VCAP::CloudController
             newrelic_enabled: bool,
 
             optional(:max_migration_duration_in_minutes) => Integer,
+            optional(:max_migration_statement_runtime_in_seconds) => Integer,
+            optional(:migration_psql_concurrent_statement_timeout_in_seconds) => Integer,
+            optional(:migration_psql_worker_memory_kb) => Integer,
             db: {
               optional(:database) => Hash, # db connection hash for sequel
               max_connections: Integer, # max connections in the connection pool
@@ -94,7 +110,8 @@ module VCAP::CloudController
               optional(:connection_expiration_timeout) => Integer,
               optional(:connection_expiration_random_delay) => Integer,
               optional(:ssl_verify_hostname) => bool,
-              optional(:ca_cert_path) => String
+              optional(:ca_cert_path) => String,
+              optional(:enable_paginate_window) => bool
             },
 
             optional(:redis) => {
@@ -102,6 +119,7 @@ module VCAP::CloudController
             },
 
             staging: {
+              optional(:legacy_md5_buildpack_paths_enabled) => bool,
               timeout_in_seconds: Integer,
               minimum_staging_memory_mb: Integer,
               minimum_staging_disk_mb: Integer,
@@ -139,6 +157,10 @@ module VCAP::CloudController
             default_staging_security_groups: [String],
             default_running_security_groups: [String],
 
+            security_groups: {
+              enable_comma_delimited_destinations: bool
+            },
+
             resource_pool: {
               maximum_size: Integer,
               minimum_size: Integer,
@@ -161,10 +183,7 @@ module VCAP::CloudController
               app_package_directory_key: String,
               fog_connection: Hash,
               fog_aws_storage_options: Hash,
-              fog_gcp_storage_options: Hash,
-              optional(:image_registry) => {
-                base_path: String
-              }
+              fog_gcp_storage_options: Hash
             },
 
             droplets: {
@@ -173,11 +192,6 @@ module VCAP::CloudController
               fog_connection: Hash,
               fog_aws_storage_options: Hash,
               fog_gcp_storage_options: Hash
-            },
-
-            optional(:registry_buddy) => {
-              host: String,
-              port: Integer
             },
 
             db_encryption_key: enum(String, NilClass),
@@ -262,8 +276,10 @@ module VCAP::CloudController
 
             webserver: String, # thin or puma
             optional(:puma) => {
+              automatic_worker_count: bool,
               workers: Integer,
-              max_threads: Integer
+              max_threads: Integer,
+              optional(:max_db_connections_per_process) => Integer
             },
 
             install_buildpacks: [
@@ -316,17 +332,27 @@ module VCAP::CloudController
               reset_interval_in_minutes: Integer
             },
 
+            optional(:temporary_enable_v2) => bool,
+
             allow_app_ssh_access: bool,
 
             optional(:external_host) => String,
 
             statsd_host: String,
             statsd_port: Integer,
+            optional(:enable_statsd_metrics) => bool,
             system_hostnames: [String],
             default_app_ssh_access: bool,
 
             jobs: {
-              global: { timeout_in_seconds: Integer },
+              global: {
+                timeout_in_seconds: Integer,
+                worker_sleep_delay_in_seconds: Integer
+              },
+              queues: {
+                optional(:cc_generic) => { timeout_in_seconds: Integer }
+              },
+              optional(:enable_dynamic_job_priorities) => bool,
               optional(:app_usage_events_cleanup) => { timeout_in_seconds: Integer },
               optional(:blobstore_delete) => { timeout_in_seconds: Integer },
               optional(:diego_sync) => { timeout_in_seconds: Integer },
@@ -361,7 +387,8 @@ module VCAP::CloudController
               dataset: String
             },
 
-            update_metric_tags_on_rename: bool
+            update_metric_tags_on_rename: bool,
+            app_instance_stopping_state: bool
           }
         end
         # rubocop:enable Metrics/BlockLength

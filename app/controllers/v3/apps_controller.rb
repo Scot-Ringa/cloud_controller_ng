@@ -37,16 +37,20 @@ class AppsV3Controller < ApplicationController
     message = AppsListMessage.from_params(query_params)
     invalid_param!(message.errors.full_messages) unless message.valid?
 
-    dataset = if permission_queryer.can_read_globally?
-                AppListFetcher.fetch_all(message, eager_loaded_associations: Presenters::V3::AppPresenter.associated_resources)
-              else
-                AppListFetcher.fetch(message, permission_queryer.readable_space_guids,
-                                     eager_loaded_associations: Presenters::V3::AppPresenter.associated_resources)
-              end
+    eager_loaded_associations = Presenters::V3::AppPresenter.associated_resources
 
     decorators = []
     decorators << IncludeSpaceDecorator if IncludeSpaceDecorator.match?(message.include)
-    decorators << IncludeOrganizationDecorator if IncludeOrganizationDecorator.match?(message.include)
+    if IncludeOrganizationDecorator.match?(message.include)
+      decorators << IncludeOrganizationDecorator
+      eager_loaded_associations << :space
+    end
+
+    dataset = if permission_queryer.can_read_globally?
+                AppListFetcher.fetch_all(message, eager_loaded_associations:)
+              else
+                AppListFetcher.fetch(message, permission_queryer.readable_space_guids, eager_loaded_associations:)
+              end
 
     page_results = SequelPaginator.new.get_page(dataset, message.try(:pagination_options))
     handle_order_by_presented_value(page_results)
@@ -90,8 +94,8 @@ class AppsV3Controller < ApplicationController
     unauthorized! unless permission_queryer.can_write_to_active_space?(space.id)
     suspended! unless permission_queryer.is_space_active?(space.id)
     FeatureFlag.raise_unless_enabled!(:diego_docker) if message.lifecycle_type == VCAP::CloudController::PackageModel::DOCKER_TYPE
-
     lifecycle = AppLifecycleProvider.provide_for_create(message)
+    FeatureFlag.raise_unless_enabled!(:diego_cnb) if lifecycle.type == VCAP::CloudController::Lifecycles::CNB
     unprocessable!(lifecycle.errors.full_messages) unless lifecycle.valid?
 
     app = AppCreate.new(user_audit_info).create(message, lifecycle)
@@ -162,6 +166,7 @@ class AppsV3Controller < ApplicationController
     suspended! unless permission_queryer.is_space_active?(space.id)
 
     FeatureFlag.raise_unless_enabled!(:diego_docker) if app.lifecycle_type == DockerLifecycleDataModel::LIFECYCLE_TYPE
+    FeatureFlag.raise_unless_enabled!(:diego_cnb) if app.lifecycle_type == CNBLifecycleDataModel::LIFECYCLE_TYPE
 
     AppStart.start(app:, user_audit_info:)
     TelemetryLogger.v3_emit(
@@ -204,6 +209,7 @@ class AppsV3Controller < ApplicationController
     suspended! unless permission_queryer.is_space_active?(space.id)
 
     FeatureFlag.raise_unless_enabled!(:diego_docker) if app.lifecycle_type == DockerLifecycleDataModel::LIFECYCLE_TYPE
+    FeatureFlag.raise_unless_enabled!(:diego_cnb) if app.lifecycle_type == CNBLifecycleDataModel::LIFECYCLE_TYPE
 
     AppRestart.restart(app: app, config: Config.config, user_audit_info: user_audit_info)
     TelemetryLogger.v3_emit(
@@ -219,6 +225,20 @@ class AppsV3Controller < ApplicationController
   rescue ::VCAP::CloudController::Diego::Runner::CannotCommunicateWithDiegoError => e
     logger.error(e.message)
     raise CloudController::Errors::ApiError.new_from_details('RunnerUnavailable', 'Unable to communicate with Diego')
+  end
+
+  def clear_buildpack_cache
+    app, space = AppFetcher.new.fetch(hashed_params[:guid])
+    app_not_found! unless app && permission_queryer.can_read_from_space?(space.id, space.organization_id)
+    unauthorized! unless permission_queryer.can_delete_buildpack_cache?(space.id)
+    suspended! unless permission_queryer.is_space_active?(space.id)
+
+    delete_job = Jobs::V3::BuildpackCacheDelete.new(app.guid)
+    job = Jobs::Enqueuer.new(delete_job, queue: Jobs::Queues.generic).enqueue_pollable
+
+    VCAP::AppLogEmitter.emit(app.guid, "Enqueued job to delete app buildpack cache with app guid #{app.guid}")
+
+    head HTTP::ACCEPTED, 'Location' => url_builder.build_url(path: "/v3/jobs/#{job.guid}")
   end
 
   def builds

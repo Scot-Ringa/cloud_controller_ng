@@ -7,6 +7,9 @@ module VCAP::CloudController
         define_schema do
           {
             optional(:max_migration_duration_in_minutes) => Integer,
+            optional(:max_migration_statement_runtime_in_seconds) => Integer,
+            optional(:migration_psql_concurrent_statement_timeout_in_seconds) => Integer,
+            optional(:migration_psql_worker_memory_kb) => Integer,
 
             db: {
               optional(:database) => Hash, # db connection hash for sequel
@@ -16,7 +19,8 @@ module VCAP::CloudController
               :connection_validation_timeout => Integer,
               optional(:log_db_queries) => bool,
               optional(:ssl_verify_hostname) => bool,
-              optional(:ca_cert_path) => String
+              optional(:ca_cert_path) => String,
+              optional(:enable_paginate_window) => bool
             },
 
             db_encryption_key: enum(String, NilClass),
@@ -30,7 +34,8 @@ module VCAP::CloudController
             logging: {
               level: String, # debug, info, etc.
               file: String, # Log file to use
-              syslog: String # Name to associate with syslog messages (should start with 'vcap.')
+              syslog: String, # Name to associate with syslog messages (should start with 'vcap.')
+              optional(:stdout_sink_enabled) => bool
             }
           }
         end

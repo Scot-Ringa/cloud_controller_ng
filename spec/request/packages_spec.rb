@@ -72,7 +72,7 @@ RSpec.describe 'Packages' do
           }
         }.to_json
 
-        parsed_response = MultiJson.load(last_response.body)
+        parsed_response = Oj.load(last_response.body)
         expect(last_response.status).to eq(201)
         expect(parsed_response).to be_a_response_like(expected_response)
 
@@ -103,7 +103,7 @@ RSpec.describe 'Packages' do
         let(:org) { space.organization }
         let(:user) { VCAP::CloudController::User.make }
         let(:expected_codes_and_responses) do
-          h = Hash.new(code: 201)
+          h = Hash.new({ code: 201 }.freeze)
           h['org_auditor'] = { code: 422 }
           h['org_billing_manager'] = { code: 422 }
           h['no_role'] = { code: 422 }
@@ -170,7 +170,7 @@ RSpec.describe 'Packages' do
         }
 
         expect(last_response.status).to eq(201)
-        parsed_response = MultiJson.load(last_response.body)
+        parsed_response = Oj.load(last_response.body)
         expect(parsed_response).to be_a_response_like(expected_response)
 
         expected_event_metadata = {
@@ -213,7 +213,7 @@ RSpec.describe 'Packages' do
           }
         end
         let(:expected_codes_and_responses) do
-          h = Hash.new(code: 201)
+          h = Hash.new({ code: 201 }.freeze)
           h['org_auditor'] = { code: 422 }
           h['org_billing_manager'] = { code: 422 }
           h['no_role'] = { code: 422 }
@@ -296,7 +296,7 @@ RSpec.describe 'Packages' do
       end
 
       let(:expected_codes_and_responses) do
-        h = Hash.new(code: 200, response_objects: packages_response_objects)
+        h = Hash.new({ code: 200, response_objects: packages_response_objects }.freeze)
         h['org_auditor'] = { code: 404 }
         h['org_billing_manager'] = { code: 404 }
         h['no_role'] = { code: 404 }
@@ -368,7 +368,7 @@ RSpec.describe 'Packages' do
 
         get "/v3/apps/#{guid}/packages?page=#{page}&per_page=#{per_page}&order_by=#{order_by}", {}, user_header
 
-        parsed_response = MultiJson.load(last_response.body)
+        parsed_response = Oj.load(last_response.body)
 
         expect(last_response.status).to eq(200)
         expect(parsed_response).to be_a_response_like(expected_response)
@@ -407,7 +407,7 @@ RSpec.describe 'Packages' do
           'previous' => nil
         }
 
-        parsed_response = MultiJson.load(last_response.body)
+        parsed_response = Oj.load(last_response.body)
 
         expect(last_response.status).to eq(200)
         expect(parsed_response['resources'].count).to eq(3)
@@ -432,7 +432,7 @@ RSpec.describe 'Packages' do
           'previous' => nil
         }
 
-        parsed_response = MultiJson.load(last_response.body)
+        parsed_response = Oj.load(last_response.body)
 
         expect(last_response.status).to eq(200)
         expect(parsed_response['resources'].count).to eq(2)
@@ -456,7 +456,7 @@ RSpec.describe 'Packages' do
           'previous' => nil
         }
 
-        parsed_response = MultiJson.load(last_response.body)
+        parsed_response = Oj.load(last_response.body)
 
         expect(last_response.status).to eq(200)
         expect(parsed_response['resources'].pluck('guid')).to contain_exactly(package1.guid, package2.guid)
@@ -548,7 +548,7 @@ RSpec.describe 'Packages' do
       end
 
       let(:expected_codes_and_responses) do
-        h = Hash.new(code: 200, response_objects: packages_response_objects)
+        h = Hash.new({ code: 200, response_objects: packages_response_objects }.freeze)
         h['org_auditor'] = { code: 200, response_objects: [] }
         h['org_billing_manager'] = { code: 200, response_objects: [] }
         h['no_role'] = { code: 200, response_objects: [] }
@@ -602,7 +602,7 @@ RSpec.describe 'Packages' do
             'previous' => nil
           }
 
-          parsed_response = MultiJson.load(last_response.body)
+          parsed_response = Oj.load(last_response.body)
 
           expect(last_response.status).to eq(200)
           expect(parsed_response['resources'].count).to eq(3)
@@ -629,7 +629,7 @@ RSpec.describe 'Packages' do
             'previous' => nil
           }
 
-          parsed_response = MultiJson.load(last_response.body)
+          parsed_response = Oj.load(last_response.body)
 
           expect(last_response.status).to eq(200)
           expect(parsed_response['resources'].count).to eq(3)
@@ -654,7 +654,7 @@ RSpec.describe 'Packages' do
             'previous' => nil
           }
 
-          parsed_response = MultiJson.load(last_response.body)
+          parsed_response = Oj.load(last_response.body)
 
           expect(last_response.status).to eq(200)
           expect(parsed_response['resources'].pluck('guid')).to contain_exactly(package1.guid, package2.guid)
@@ -678,7 +678,7 @@ RSpec.describe 'Packages' do
             'previous' => nil
           }
 
-          parsed_response = MultiJson.load(last_response.body)
+          parsed_response = Oj.load(last_response.body)
 
           expect(last_response.status).to eq(200)
           expect(parsed_response['resources'].pluck('guid')).to contain_exactly(package1.guid, package2.guid)
@@ -709,7 +709,7 @@ RSpec.describe 'Packages' do
             'previous' => nil
           }
 
-          parsed_response = MultiJson.load(last_response.body)
+          parsed_response = Oj.load(last_response.body)
 
           expect(last_response.status).to eq(200)
           expect(parsed_response['resources'].pluck('guid')).to contain_exactly(package_on_space2.guid, package_on_space1.guid)
@@ -747,7 +747,7 @@ RSpec.describe 'Packages' do
             'previous' => nil
           }
 
-          parsed_response = MultiJson.load(last_response.body)
+          parsed_response = Oj.load(last_response.body)
 
           expect(last_response.status).to eq(200)
           expect(parsed_response['resources'].pluck('guid')).to contain_exactly(package_in_org1.guid, package_in_org2.guid)
@@ -771,7 +771,7 @@ RSpec.describe 'Packages' do
             'previous' => nil
           }
 
-          parsed_response = MultiJson.load(last_response.body)
+          parsed_response = Oj.load(last_response.body)
 
           expect(last_response.status).to eq(200)
           expect(parsed_response['resources'].count).to eq(1)
@@ -810,7 +810,7 @@ RSpec.describe 'Packages' do
       }
     end
     let(:expected_codes_and_responses) do
-      h = Hash.new(code: 200, response_object: package_model_response_object)
+      h = Hash.new({ code: 200, response_object: package_model_response_object }.freeze)
       h['org_auditor'] = { code: 404 }
       h['org_billing_manager'] = { code: 404 }
       h['no_role'] = { code: 404 }
@@ -879,7 +879,7 @@ RSpec.describe 'Packages' do
             'app' => { 'href' => "#{link_prefix}/v3/apps/#{app_model.guid}" }
           }
         }
-        parsed_response = MultiJson.load(last_response.body)
+        parsed_response = Oj.load(last_response.body)
         expect(last_response.status).to eq(200)
         expect(parsed_response).to be_a_response_like(expected_response)
 
@@ -942,7 +942,7 @@ RSpec.describe 'Packages' do
               'user-id' => OpenSSL::Digest::SHA256.hexdigest(user.guid)
             }
           }
-          expect_any_instance_of(ActiveSupport::Logger).to receive(:info).with(JSON.generate(expected_json))
+          expect_any_instance_of(ActiveSupport::Logger).to receive(:info).with(Oj.dump(expected_json))
           post "/v3/packages/#{guid}/upload", packages_params.to_json, user_header
           expect(last_response.status).to eq(200)
         end
@@ -981,7 +981,7 @@ RSpec.describe 'Packages' do
         }
       end
       let(:expected_codes_and_responses) do
-        h = Hash.new(code: 200, response_object: package_model_response_object)
+        h = Hash.new({ code: 200, response_object: package_model_response_object }.freeze)
         h['org_auditor'] = { code: 404 }
         h['org_billing_manager'] = { code: 404 }
         h['no_role'] = { code: 404 }
@@ -1077,7 +1077,7 @@ RSpec.describe 'Packages' do
       let(:org) { space.organization }
       let(:user) { VCAP::CloudController::User.make }
       let(:expected_codes_and_responses) do
-        h = Hash.new(code: 302)
+        h = Hash.new({ code: 302 }.freeze)
         h['global_auditor'] = { code: 403 }
         h['org_auditor'] = { code: 404 }
         h['org_billing_manager'] = { code: 404 }
@@ -1129,7 +1129,7 @@ RSpec.describe 'Packages' do
         'annotations' => { 'checksum' => 'SHA' }
       }
 
-      parsed_response = MultiJson.load(last_response.body)
+      parsed_response = Oj.load(last_response.body)
       expect(last_response.status).to eq(200)
       expect(parsed_response['metadata']).to eq(expected_metadata)
     end
@@ -1145,7 +1145,7 @@ RSpec.describe 'Packages' do
       let(:org) { space.organization }
       let(:user) { VCAP::CloudController::User.make }
       let(:expected_codes_and_responses) do
-        h = Hash.new(code: 200)
+        h = Hash.new({ code: 200 }.freeze)
         h['org_auditor'] = { code: 404 }
         h['org_billing_manager'] = { code: 404 }
         h['no_role'] = { code: 404 }
@@ -1237,7 +1237,7 @@ RSpec.describe 'Packages' do
       let(:org) { space.organization }
       let(:user) { VCAP::CloudController::User.make }
       let(:expected_codes_and_responses) do
-        h = Hash.new(code: 202)
+        h = Hash.new({ code: 202 }.freeze)
         h['org_auditor'] = { code: 404 }
         h['org_billing_manager'] = { code: 404 }
         h['no_role'] = { code: 404 }

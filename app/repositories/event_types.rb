@@ -25,6 +25,8 @@ module VCAP::CloudController
         APP_PROCESS_CRASH = 'audit.app.process.crash'.freeze,
         APP_PROCESS_TERMINATE_INSTANCE = 'audit.app.process.terminate_instance'.freeze,
         APP_PROCESS_SCALE = 'audit.app.process.scale'.freeze,
+        APP_PROCESS_READY = 'audit.app.process.ready'.freeze,
+        APP_PROCESS_NOT_READY = 'audit.app.process.not-ready'.freeze,
 
         APP_DROPLET_CREATE = 'audit.app.droplet.create'.freeze,
         APP_DROPLET_UPLOAD = 'audit.app.droplet.upload'.freeze,
@@ -45,6 +47,7 @@ module VCAP::CloudController
         APP_REVISION_ENV_VARS_SHOW = 'audit.app.revision.environment_variables.show'.freeze,
         APP_DEPLOYMENT_CANCEL = 'audit.app.deployment.cancel'.freeze,
         APP_DEPLOYMENT_CREATE = 'audit.app.deployment.create'.freeze,
+        APP_DEPLOYMENT_CONTINUE = 'audit.app.deployment.continue'.freeze,
         APP_COPY_BITS = 'audit.app.copy-bits'.freeze,
         APP_UPLOAD_BITS = 'audit.app.upload-bits'.freeze,
         APP_APPLY_MANIFEST = 'audit.app.apply_manifest'.freeze,

@@ -97,6 +97,10 @@ class VCAP::CloudController::Permissions
     roles.admin?
   end
 
+  def is_org_manager?
+    VCAP::CloudController::OrganizationManager.where(user_id: @user.id).any?
+  end
+
   def readable_org_guids
     readable_org_guids_query.select_map(:guid)
   end
@@ -105,6 +109,10 @@ class VCAP::CloudController::Permissions
     raise 'must not be called for users that can read globally' if can_read_globally?
 
     membership.authorized_org_guids_subquery(ROLES_FOR_ORG_READING)
+  end
+
+  def can_delete_buildpack_cache?(space_id)
+    roles.admin? || membership.role_applies?(ROLES_FOR_APP_MANAGING, space_id)
   end
 
   def readable_orgs_query

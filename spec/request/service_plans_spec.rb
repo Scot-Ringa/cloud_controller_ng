@@ -16,7 +16,7 @@ RSpec.describe 'V3 service plans' do
       let(:guid) { 'no-such-plan' }
 
       let(:expected_codes_and_responses) do
-        Hash.new(code: 404)
+        Hash.new({ code: 404 }.freeze)
       end
 
       it_behaves_like 'permissions for single object endpoint', ALL_PERMISSIONS + UNAUTHENTICATED
@@ -34,8 +34,8 @@ RSpec.describe 'V3 service plans' do
 
       let(:expected_codes_and_responses) do
         Hash.new(
-          code: 200,
-          response_object: create_plan_json(service_plan, maintenance_info:)
+          { code: 200,
+            response_object: create_plan_json(service_plan, maintenance_info:) }.freeze
         )
       end
 
@@ -47,7 +47,7 @@ RSpec.describe 'V3 service plans' do
         end
 
         let(:expected_codes_and_responses) do
-          Hash.new(code: 401)
+          Hash.new({ code: 401 }.freeze)
         end
 
         it_behaves_like 'permissions for single object endpoint', UNAUTHENTICATED
@@ -61,7 +61,7 @@ RSpec.describe 'V3 service plans' do
         let(:guid) { service_plan.guid }
 
         let(:expected_codes_and_responses) do
-          Hash.new(code: 200, response_object: create_plan_json(service_plan)).tap do |r|
+          Hash.new({ code: 200, response_object: create_plan_json(service_plan) }.freeze).tap do |r|
             r['unauthenticated'] = { code: 404 }
             r['no_role'] = { code: 404 }
           end
@@ -259,10 +259,10 @@ RSpec.describe 'V3 service plans' do
 
       let(:expected_codes_and_responses) do
         Hash.new(
-          code: 200,
-          response_objects: [
-            create_plan_json(public_service_plan)
-          ]
+          { code: 200,
+            response_objects: [
+              create_plan_json(public_service_plan)
+            ] }.freeze
         ).tap do |h|
           h['admin'] = all_plans_response
           h['admin_read_only'] = all_plans_response
@@ -285,7 +285,7 @@ RSpec.describe 'V3 service plans' do
         end
 
         let(:expected_codes_and_responses) do
-          Hash.new(code: 401)
+          Hash.new({ code: 401 }.freeze)
         end
 
         it_behaves_like 'permissions for list endpoint', UNAUTHENTICATED
@@ -558,20 +558,43 @@ RSpec.describe 'V3 service plans' do
     end
 
     describe 'includes' do
-      it 'can include `space.organization`' do
-        space_1 = VCAP::CloudController::Space.make
-        space_2 = VCAP::CloudController::Space.make
-        generate_space_scoped_plan(space_1)
-        generate_space_scoped_plan(space_2)
+      let(:space_1) do
+        VCAP::CloudController::Space.make(
+          organization: VCAP::CloudController::Organization.make(created_at: Time.now.utc - 1.second),
+          created_at: Time.now.utc - 1.second
+        )
+      end
+      let(:space_2) { VCAP::CloudController::Space.make }
 
-        get '/v3/service_plans?include=space.organization', nil, admin_headers
-        expect(last_response).to have_status_code(200)
+      context 'when including `space.organization`' do
+        before do
+          generate_space_scoped_plan(space_1)
+          generate_space_scoped_plan(space_2)
+        end
 
-        expect(parsed_response['included']['spaces']).to have(2).elements
-        expect(parsed_response['included']['spaces'].pluck('guid')).to contain_exactly(space_1.guid, space_2.guid)
+        it 'includes spaces and organizations' do
+          get '/v3/service_plans?include=space.organization', nil, admin_headers
+          expect(last_response).to have_status_code(200)
 
-        expect(parsed_response['included']['organizations']).to have(2).elements
-        expect(parsed_response['included']['organizations'].pluck('guid')).to contain_exactly(space_1.organization.guid, space_2.organization.guid)
+          expect(parsed_response['included']['spaces']).to have(2).elements
+          expect(parsed_response['included']['spaces'].pluck('guid')).to contain_exactly(space_1.guid, space_2.guid)
+
+          expect(parsed_response['included']['organizations']).to have(2).elements
+          expect(parsed_response['included']['organizations'].pluck('guid')).to contain_exactly(space_1.organization.guid, space_2.organization.guid)
+        end
+
+        it 'eagerly loads services.service_brokers to efficiently access service_broker.space_id' do
+          expect(VCAP::CloudController::IncludeServicePlanSpaceOrganizationDecorator).to receive(:decorate) do |_, service_plans|
+            expect(service_plans).not_to be_empty
+            service_plans.each do |sp|
+              expect(sp.associations).to include(:service)
+              expect(sp.associations[:service].associations).to include(:service_broker)
+            end
+          end
+
+          get '/v3/service_plans?include=space.organization', nil, admin_headers
+          expect(last_response).to have_status_code(200)
+        end
       end
 
       it 'can include `service_offering`' do
@@ -590,7 +613,13 @@ RSpec.describe 'V3 service plans' do
     end
 
     describe 'fields' do
-      let!(:plan_1) { VCAP::CloudController::ServicePlan.make }
+      let!(:plan_1) do
+        VCAP::CloudController::ServicePlan.make(
+          service: VCAP::CloudController::Service.make(
+            service_broker: VCAP::CloudController::ServiceBroker.make(created_at: Time.now.utc - 1.second)
+          )
+        )
+      end
       let!(:plan_2) { VCAP::CloudController::ServicePlan.make }
 
       it 'can include service broker name and guid' do
@@ -637,7 +666,7 @@ RSpec.describe 'V3 service plans' do
       let(:guid) { 'non-existing-guid' }
 
       let(:expected_codes_and_responses) do
-        Hash.new(code: 404).tap do |h|
+        Hash.new({ code: 404 }.freeze).tap do |h|
           h['unauthenticated'] = { code: 401 }
         end
       end
@@ -652,7 +681,7 @@ RSpec.describe 'V3 service plans' do
         let!(:service_plan) { VCAP::CloudController::ServicePlan.make(public: false) }
 
         let(:expected_codes_and_responses) do
-          Hash.new(code: 404).tap do |h|
+          Hash.new({ code: 404 }.freeze).tap do |h|
             h['admin'] = { code: 204 }
             h['admin_read_only'] = { code: 403 }
             h['global_auditor'] = { code: 403 }
@@ -667,7 +696,7 @@ RSpec.describe 'V3 service plans' do
         let!(:service_plan) { VCAP::CloudController::ServicePlan.make }
 
         let(:expected_codes_and_responses) do
-          Hash.new(code: 403).tap do |h|
+          Hash.new({ code: 403 }.freeze).tap do |h|
             h['admin'] = { code: 204 }
             h['unauthenticated'] = { code: 401 }
           end
@@ -684,7 +713,7 @@ RSpec.describe 'V3 service plans' do
         end
 
         let(:expected_codes_and_responses) do
-          Hash.new(code: 403).tap do |h|
+          Hash.new({ code: 403 }.freeze).tap do |h|
             h['admin'] = { code: 204 }
             h['no_role'] = { code: 404 }
             h['unauthenticated'] = { code: 401 }
@@ -700,7 +729,7 @@ RSpec.describe 'V3 service plans' do
         let!(:service_plan) { VCAP::CloudController::ServicePlan.make(service: service_offering, public: false) }
 
         let(:expected_codes_and_responses) do
-          Hash.new(code: 404).tap do |h|
+          Hash.new({ code: 404 }.freeze).tap do |h|
             h['admin'] = { code: 204 }
             h['admin_read_only'] = { code: 403 }
             h['global_auditor'] = { code: 403 }
@@ -803,7 +832,7 @@ RSpec.describe 'V3 service plans' do
         let!(:service_plan) { VCAP::CloudController::ServicePlan.make(public: false) }
 
         let(:expected_codes_and_responses) do
-          Hash.new(code: 404).tap do |h|
+          Hash.new({ code: 404 }.freeze).tap do |h|
             h['admin'] = { code: 200, response_object: create_plan_json(service_plan, labels:, annotations:) }
             h['admin_read_only'] = { code: 403 }
             h['global_auditor'] = { code: 403 }
@@ -818,7 +847,7 @@ RSpec.describe 'V3 service plans' do
         let!(:service_plan) { VCAP::CloudController::ServicePlan.make }
 
         let(:expected_codes_and_responses) do
-          Hash.new(code: 403).tap do |h|
+          Hash.new({ code: 403 }.freeze).tap do |h|
             h['admin'] = { code: 200, response_object: create_plan_json(service_plan, labels:, annotations:) }
             h['unauthenticated'] = { code: 401 }
           end
@@ -835,7 +864,7 @@ RSpec.describe 'V3 service plans' do
         end
 
         let(:expected_codes_and_responses) do
-          Hash.new(code: 403).tap do |h|
+          Hash.new({ code: 403 }.freeze).tap do |h|
             h['admin'] = { code: 200, response_object: create_plan_json(service_plan, labels:, annotations:) }
             h['no_role'] = { code: 404 }
             h['unauthenticated'] = { code: 401 }
@@ -851,7 +880,7 @@ RSpec.describe 'V3 service plans' do
         let!(:service_plan) { VCAP::CloudController::ServicePlan.make(service: service_offering, public: false) }
 
         let(:expected_codes_and_responses) do
-          Hash.new(code: 404).tap do |h|
+          Hash.new({ code: 404 }.freeze).tap do |h|
             h['admin'] = { code: 200, response_object: create_plan_json(service_plan, labels:, annotations:) }
             h['admin_read_only'] = { code: 403 }
             h['global_auditor'] = { code: 403 }

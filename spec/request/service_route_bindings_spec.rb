@@ -68,7 +68,7 @@ RSpec.describe 'v3 service route bindings' do
     describe 'no bindings to list' do
       let(:api_call) { ->(user_headers) { get '/v3/service_route_bindings', nil, user_headers } }
       let(:expected_codes_and_responses) do
-        Hash.new(code: 200, response_objects: [])
+        Hash.new({ code: 200, response_objects: [] }.freeze)
       end
 
       it_behaves_like 'permissions for list endpoint', ALL_PERMISSIONS
@@ -116,7 +116,7 @@ RSpec.describe 'v3 service route bindings' do
       end
 
       let(:expected_codes_and_responses) do
-        Hash.new(code: 200, response_objects: []).tap do |h|
+        Hash.new({ code: 200, response_objects: [] }.freeze).tap do |h|
           h['admin'] = bindings_response_body
           h['admin_read_only'] = bindings_response_body
           h['global_auditor'] = bindings_response_body
@@ -214,23 +214,37 @@ RSpec.describe 'v3 service route bindings' do
     end
 
     describe 'include' do
-      it 'can include `service_instance`' do
-        instance = VCAP::CloudController::UserProvidedServiceInstance.make(:routing)
-        other_instance = VCAP::CloudController::UserProvidedServiceInstance.make(:routing)
+      context 'when including `service_instance`' do
+        let(:instance) { VCAP::CloudController::UserProvidedServiceInstance.make(:routing, created_at: Time.now.utc - 1.second) }
+        let(:other_instance) { VCAP::CloudController::UserProvidedServiceInstance.make(:routing) }
 
-        VCAP::CloudController::RouteBinding.make(service_instance: instance)
-        2.times { VCAP::CloudController::RouteBinding.make(service_instance: other_instance) }
+        before do
+          VCAP::CloudController::RouteBinding.make(service_instance: instance)
+          2.times { VCAP::CloudController::RouteBinding.make(service_instance: other_instance) }
+        end
 
-        get '/v3/service_route_bindings?include=service_instance', nil, admin_headers
-        expect(last_response).to have_status_code(200)
+        it 'includes service instances`' do
+          get '/v3/service_route_bindings?include=service_instance', nil, admin_headers
+          expect(last_response).to have_status_code(200)
 
-        expect(parsed_response['included']['service_instances']).to have(2).items
-        guids = parsed_response['included']['service_instances'].pluck('guid')
-        expect(guids).to contain_exactly(instance.guid, other_instance.guid)
+          expect(parsed_response['included']['service_instances']).to have(2).items
+          guids = parsed_response['included']['service_instances'].pluck('guid')
+          expect(guids).to contain_exactly(instance.guid, other_instance.guid)
+        end
+
+        it 'eagerly loads service_instances to efficiently access service_instance_guid' do
+          expect(VCAP::CloudController::IncludeBindingServiceInstanceDecorator).to receive(:decorate) do |_, bindings|
+            expect(bindings).not_to be_empty
+            bindings.each { |b| expect(b.associations).to include(:service_instance) }
+          end
+
+          get '/v3/service_route_bindings?include=service_instance', nil, admin_headers
+          expect(last_response).to have_status_code(200)
+        end
       end
 
       it 'can include `route`' do
-        route = VCAP::CloudController::Route.make
+        route = VCAP::CloudController::Route.make(created_at: Time.now.utc - 1.second)
         other_route = VCAP::CloudController::Route.make
 
         si = VCAP::CloudController::ManagedServiceInstance.make(:routing, space: route.space)
@@ -990,6 +1004,29 @@ RSpec.describe 'v3 service route bindings' do
                                                                }))
         end
       end
+
+      context 'when db is unavailable' do
+        before do
+          allow_any_instance_of(ServiceRouteBindingsController).to receive(:enqueue_bind_job).and_raise(Sequel::DatabaseDisconnectError)
+        end
+
+        it 'raises the appropriate error' do
+          api_call.call(admin_headers)
+
+          expect(last_response).to have_status_code(503)
+          expect(parsed_response['errors']).to include(include({
+                                                                 'detail' => include('Database connection failure'),
+                                                                 'title' => 'CF-ServiceUnavailable',
+                                                                 'code' => 10_015
+                                                               }))
+        end
+
+        it 'rolls back the transaction' do
+          api_call.call(admin_headers)
+
+          expect(service_instance.routes.count).to eq(0)
+        end
+      end
     end
 
     context 'user-provided service instance' do
@@ -1573,7 +1610,7 @@ RSpec.describe 'v3 service route bindings' do
 
       context 'permissions' do
         let(:expected_codes_and_responses) do
-          Hash.new(code: 403, errors: CF_NOT_AUTHORIZED).tap do |h|
+          Hash.new({ code: 403, errors: CF_NOT_AUTHORIZED }.freeze).tap do |h|
             h['admin'] = parameters_response
             h['admin_readonly'] = parameters_response
             h['space_developer'] = parameters_response
@@ -1735,7 +1772,7 @@ RSpec.describe 'v3 service route bindings' do
 
       context 'permissions' do
         let(:expected_codes_and_responses) do
-          Hash.new(code: 403, errors: CF_NOT_AUTHORIZED).tap do |h|
+          Hash.new({ code: 403, errors: CF_NOT_AUTHORIZED }.freeze).tap do |h|
             h['admin'] = { code: 400, response_object: error_response }
             h['admin_readonly'] = { code: 400, response_object: error_response }
             h['space_developer'] = { code: 400, response_object: error_response }

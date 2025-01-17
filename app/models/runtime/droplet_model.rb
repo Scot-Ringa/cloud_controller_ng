@@ -17,7 +17,9 @@ module VCAP::CloudController
       EXPIRED_STATE
     ].freeze
     STAGING_FAILED_REASONS = %w[StagerError StagingError StagingTimeExpired NoAppDetectedError BuildpackCompileFailed
-                                BuildpackReleaseFailed InsufficientResources NoCompatibleCell].map(&:freeze).freeze
+                                BuildpackReleaseFailed InsufficientResources NoCompatibleCell
+                                CNBGenericBuildFailed CNBDownloadBuildpackFailed CNBDetectFailed
+                                CNBBuildFailed CNBExportFailed CNBLaunchFailed CNBRestoreFailed].map(&:freeze).freeze
 
     many_to_one :package, class: 'VCAP::CloudController::PackageModel', key: :package_guid, primary_key: :guid, without_guid_generation: true
     many_to_one :app, class: 'VCAP::CloudController::AppModel', key: :app_guid, primary_key: :guid, without_guid_generation: true
@@ -35,17 +37,30 @@ module VCAP::CloudController
                class: 'VCAP::CloudController::KpackLifecycleDataModel',
                key: :droplet_guid,
                primary_key: :guid
+    one_to_one :cnb_lifecycle_data,
+               class: 'VCAP::CloudController::CNBLifecycleDataModel',
+               key: :droplet_guid,
+               primary_key: :guid
     one_to_many :labels, class: 'VCAP::CloudController::DropletLabelModel', key: :resource_guid, primary_key: :guid
     one_to_many :annotations, class: 'VCAP::CloudController::DropletAnnotationModel', key: :resource_guid, primary_key: :guid
 
     add_association_dependencies buildpack_lifecycle_data: :destroy
     add_association_dependencies kpack_lifecycle_data: :destroy
+    add_association_dependencies cnb_lifecycle_data: :destroy
     add_association_dependencies labels: :destroy
     add_association_dependencies annotations: :destroy
 
     set_field_as_encrypted :docker_receipt_password, salt: :docker_receipt_password_salt, column: :encrypted_docker_receipt_password
     serializes_via_json :process_types
     serializes_via_json :sidecars
+
+    def around_destroy
+      yield
+    rescue Sequel::ForeignKeyConstraintViolation => e
+      raise e unless e.message.include?('fk_apps_droplet_guid')
+
+      raise in_use_error
+    end
 
     def error
       e = [error_id, error_description].compact.join(' - ')
@@ -89,17 +104,22 @@ module VCAP::CloudController
       lifecycle_type == DockerLifecycleDataModel::LIFECYCLE_TYPE
     end
 
+    def cnb?
+      lifecycle_type == CNBLifecycleDataModel::LIFECYCLE_TYPE
+    end
+
     def docker_ports
       exposed_ports = []
       if execution_metadata.present?
         begin
-          metadata = JSON.parse(execution_metadata)
+          metadata = Oj.load(execution_metadata)
           unless metadata['ports'].nil?
             metadata['ports'].each do |port|
               exposed_ports << port['Port'] if port['Protocol'] == 'tcp'
             end
           end
-        rescue JSON::ParserError
+        rescue StandardError
+          # ignore
         end
       end
       exposed_ports
@@ -140,12 +160,16 @@ module VCAP::CloudController
 
     def lifecycle_type
       return BuildpackLifecycleDataModel::LIFECYCLE_TYPE if buildpack_lifecycle_data
+      return CNBLifecycleDataModel::LIFECYCLE_TYPE if cnb_lifecycle_data
 
       DockerLifecycleDataModel::LIFECYCLE_TYPE
     end
 
     def lifecycle_data
-      buildpack_lifecycle_data || kpack_lifecycle_data || DockerLifecycleDataModel.new
+      return buildpack_lifecycle_data if buildpack_lifecycle_data
+      return cnb_lifecycle_data if cnb_lifecycle_data
+
+      DockerLifecycleDataModel.new
     end
 
     def in_final_state?
@@ -154,6 +178,14 @@ module VCAP::CloudController
 
     def process_start_command(process_type)
       process_types.try(:[], process_type) || ''
+    end
+
+    def current?
+      app.droplet_guid == guid
+    end
+
+    def in_use_error
+      CloudController::Errors::ApiError.new_from_details('UnprocessableEntity', "The droplet is currently used by app with guid \"#{app_guid}\".")
     end
 
     private

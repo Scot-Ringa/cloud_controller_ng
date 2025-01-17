@@ -183,7 +183,8 @@ module VCAP::CloudController::Validators
 
       data_message_class_table = {
         lifecycles::BUILDPACK => VCAP::CloudController::BuildpackLifecycleDataMessage,
-        lifecycles::DOCKER => VCAP::CloudController::EmptyLifecycleDataMessage
+        lifecycles::DOCKER => VCAP::CloudController::EmptyLifecycleDataMessage,
+        lifecycles::CNB => VCAP::CloudController::BuildpackLifecycleDataMessage
       }
 
       lifecycle_data_message_class = data_message_class_table[lifecycle_type]
@@ -235,6 +236,23 @@ module VCAP::CloudController::Validators
 
       rel.errors.full_messages.each do |message|
         record.errors.add(:relationships, message:)
+      end
+    end
+  end
+
+  class OptionsValidator < ActiveModel::Validator
+    def validate(record)
+      unless record.options.is_a?(Hash)
+        record.errors.add(:options, message: "'options' is not a valid object")
+        return
+      end
+
+      opt = record.options_message
+
+      return if opt.valid?
+
+      opt.errors.full_messages.each do |message|
+        record.errors.add(:options, message:)
       end
     end
   end

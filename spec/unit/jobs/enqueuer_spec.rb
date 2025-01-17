@@ -1,3 +1,4 @@
+require 'spec_helper'
 require 'db_spec_helper'
 require 'jobs/enqueuer'
 require 'jobs/delete_action_job'
@@ -12,6 +13,7 @@ module VCAP::CloudController::Jobs
           global: {
             timeout_in_seconds: global_timeout
           },
+          queues: {},
           **priorities
         }
       }
@@ -55,7 +57,7 @@ module VCAP::CloudController::Jobs
           original_enqueue.call(enqueued_job, opts)
         end
         Enqueuer.new(wrapped_job, opts).public_send(method_name)
-        expect(timeout_calculator).to have_received(:calculate).with(wrapped_job.job_name_in_configuration)
+        expect(timeout_calculator).to have_received(:calculate).with(wrapped_job.job_name_in_configuration, 'my-queue')
       end
 
       it 'uses the default priority' do
@@ -133,16 +135,65 @@ module VCAP::CloudController::Jobs
         end
       end
 
-      context 'priority from config' do
-        let(:priorities) { { priorities: { wrapped_job.display_name.to_sym => 1899 } } }
+      it 'uses the default priority' do
+        original_enqueue = Delayed::Job.method(:enqueue)
+        expect(Delayed::Job).to receive(:enqueue) do |enqueued_job, opts|
+          expect(opts).not_to include(:priority)
+          original_enqueue.call(enqueued_job, opts)
+        end
+        Enqueuer.new(wrapped_job, opts).enqueue_pollable
+      end
 
-        it 'uses the configured priority' do
-          original_enqueue = Delayed::Job.method(:enqueue)
-          expect(Delayed::Job).to receive(:enqueue) do |enqueued_job, opts|
-            expect(opts).to include({ priority: 1899 })
-            original_enqueue.call(enqueued_job, opts)
+      context 'priority from config' do
+        context 'priority is configured via display_name' do
+          let(:priorities) { { priorities: { 'object.delete': 1899, delete_action_job: 1900, 'VCAP::CloudController::Jobs::DeleteActionJob': 1901 } } }
+
+          it 'uses the configured priority' do
+            original_enqueue = Delayed::Job.method(:enqueue)
+            expect(Delayed::Job).to receive(:enqueue) do |enqueued_job, opts|
+              expect(opts).to include({ priority: 1899 })
+              original_enqueue.call(enqueued_job, opts)
+            end
+            Enqueuer.new(wrapped_job, opts).enqueue_pollable
           end
-          Enqueuer.new(wrapped_job, opts).enqueue_pollable
+        end
+
+        context 'priority is configured via job_name_in_configuration' do
+          let(:priorities) { { priorities: { delete_action_job: 1900, 'VCAP::CloudController::Jobs::DeleteActionJob': 1901 } } }
+
+          it 'uses the configured priority' do
+            original_enqueue = Delayed::Job.method(:enqueue)
+            expect(Delayed::Job).to receive(:enqueue) do |enqueued_job, opts|
+              expect(opts).to include({ priority: 1900 })
+              original_enqueue.call(enqueued_job, opts)
+            end
+            Enqueuer.new(wrapped_job, opts).enqueue_pollable
+          end
+        end
+
+        context 'priority is configured via class name' do
+          let(:priorities) { { priorities: { 'VCAP::CloudController::Jobs::DeleteActionJob': 1901 } } }
+
+          it 'uses the configured priority' do
+            original_enqueue = Delayed::Job.method(:enqueue)
+            expect(Delayed::Job).to receive(:enqueue) do |enqueued_job, opts|
+              expect(opts).to include({ priority: 1901 })
+              original_enqueue.call(enqueued_job, opts)
+            end
+            Enqueuer.new(wrapped_job, opts).enqueue_pollable
+          end
+        end
+
+        context 'and priority from Enqueuer (e.g. from reoccurring jobs)' do
+          it 'uses the priority passed into the Enqueuer' do
+            original_enqueue = Delayed::Job.method(:enqueue)
+            expect(Delayed::Job).to receive(:enqueue) do |enqueued_job, opts|
+              expect(opts).to include({ priority: 2000 })
+              original_enqueue.call(enqueued_job, opts)
+            end
+            opts[:priority] = 2000
+            Enqueuer.new(wrapped_job, opts).enqueue_pollable
+          end
         end
       end
     end

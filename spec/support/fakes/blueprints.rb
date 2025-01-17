@@ -51,7 +51,7 @@ module VCAP::CloudController
   end
 
   AppModel.blueprint(:all_fields) do
-    droplet_guid { Sham.guid }
+    droplet { DropletModel.make }
     buildpack_cache_sha256_checksum { Sham.guid }
   end
 
@@ -60,6 +60,13 @@ module VCAP::CloudController
     space { Space.make }
     buildpack_lifecycle_data { nil.tap { |_| object.save } }
     kpack_lifecycle_data { KpackLifecycleDataModel.make(app: object.save) }
+  end
+
+  AppModel.blueprint(:cnb) do
+    name { Sham.name }
+    space { Space.make }
+    buildpack_lifecycle_data { nil.tap { |_| object.save } }
+    cnb_lifecycle_data { CNBLifecycleDataModel.make(app: object.save) }
   end
 
   AppModel.blueprint(:docker) do
@@ -77,14 +84,14 @@ module VCAP::CloudController
   BuildModel.blueprint(:docker) do
     guid     { Sham.guid }
     state    { VCAP::CloudController::DropletModel::STAGING_STATE }
-    app { AppModel.make(droplet_guid: guid) }
+    app { AppModel.make(droplet: DropletModel.make) }
     buildpack_lifecycle_data { nil.tap { |_| object.save } }
   end
 
   BuildModel.blueprint(:kpack) do
     guid     { Sham.guid }
     state    { VCAP::CloudController::DropletModel::STAGING_STATE }
-    app { AppModel.make(droplet_guid: guid) }
+    app { AppModel.make(droplet: DropletModel.make) }
     kpack_lifecycle_data { KpackLifecycleDataModel.make(build: object.save) }
     package { PackageModel.make(app:) }
     droplet { DropletModel.make(:docker, build: object.save) }
@@ -105,6 +112,14 @@ module VCAP::CloudController
     sha256_checksum { Sham.guid }
   end
 
+  PackageModel.blueprint(:cnb) do
+    guid     { Sham.guid }
+    state    { VCAP::CloudController::PackageModel::CREATED_STATE }
+    type     { 'bits' }
+    app { AppModel.make(:cnb) }
+    sha256_checksum { Sham.guid }
+  end
+
   PackageModel.blueprint(:docker) do
     guid     { Sham.guid }
     state    { VCAP::CloudController::PackageModel::READY_STATE }
@@ -117,7 +132,7 @@ module VCAP::CloudController
     guid { Sham.guid }
     process_types { { 'web' => '$HOME/boot.sh' } }
     state { VCAP::CloudController::DropletModel::STAGED_STATE }
-    app { AppModel.make(droplet_guid: guid) }
+    app { AppModel.make(droplet: object.save) }
     droplet_hash { Sham.guid }
     sha256_checksum { Sham.guid }
     buildpack_lifecycle_data { BuildpackLifecycleDataModel.make(droplet: object.save) }
@@ -132,11 +147,23 @@ module VCAP::CloudController
     buildpack_receipt_buildpack { 'a-buildpack' }
     buildpack_receipt_buildpack_guid { Sham.guid }
     buildpack_receipt_detect_output { 'buildpack-output' }
-    docker_receipt_image { 'docker-iamge' }
+    docker_receipt_image { 'docker-image' }
     package_guid { Sham.guid }
     build_guid { Sham.guid }
     docker_receipt_username { 'a-user' }
     sidecars { 'a-sidecar' }
+  end
+
+  DropletModel.blueprint(:cnb) do
+    guid { Sham.guid }
+    droplet_hash { Sham.guid }
+    sha256_checksum { Sham.guid }
+    process_types { { 'web' => '$HOME/boot.sh' } }
+    state { VCAP::CloudController::DropletModel::STAGED_STATE }
+    app { AppModel.make(:cnb, droplet: object.save) }
+    cnb_lifecycle_data { CNBLifecycleDataModel.make(droplet: object.save) }
+    buildpack_lifecycle_data { nil.tap { |_| object.save } }
+    kpack_lifecycle_data { nil.tap { |_| object.save } }
   end
 
   DropletModel.blueprint(:docker) do
@@ -144,7 +171,7 @@ module VCAP::CloudController
     droplet_hash { nil }
     sha256_checksum { nil }
     state { VCAP::CloudController::DropletModel::STAGED_STATE }
-    app { AppModel.make(droplet_guid: guid) }
+    app { AppModel.make(droplet: object.save) }
     buildpack_lifecycle_data { nil.tap { |_| object.save } }
     kpack_lifecycle_data { nil.tap { |_| object.save } }
   end
@@ -154,7 +181,7 @@ module VCAP::CloudController
     droplet_hash { nil }
     sha256_checksum { nil }
     docker_receipt_image { nil }
-    app { AppModel.make(:kpack, droplet_guid: guid) }
+    app { AppModel.make(:kpack, droplet: object.save) }
     state { VCAP::CloudController::DropletModel::STAGED_STATE }
     buildpack_lifecycle_data { nil.tap { |_| object.save } }
     kpack_lifecycle_data { KpackLifecycleDataModel.make(droplet: object.save) }
@@ -168,6 +195,7 @@ module VCAP::CloudController
     droplet { DropletModel.make(app:) }
     deploying_web_process { ProcessModel.make(app: app, type: "web-deployment-#{Sham.guid}") }
     original_web_process_instance_count { 1 }
+    strategy { 'rolling' }
   end
 
   DeploymentProcessModel.blueprint do
@@ -181,6 +209,19 @@ module VCAP::CloudController
     app { AppModel.make }
     name { Sham.name }
     droplet { DropletModel.make(app:) }
+    command { 'bundle exec rake' }
+    state { VCAP::CloudController::TaskModel::RUNNING_STATE }
+    memory_in_mb { 256 }
+    disk_in_mb {}
+    sequence_id { Sham.sequence_id }
+    failure_reason {}
+  end
+
+  TaskModel.blueprint(:cnb) do
+    guid { Sham.guid }
+    app { AppModel.make(:cnb) }
+    name { Sham.name }
+    droplet { DropletModel.make(:cnb, app:) }
     command { 'bundle exec rake' }
     state { VCAP::CloudController::TaskModel::RUNNING_STATE }
     memory_in_mb { 256 }
@@ -452,6 +493,14 @@ module VCAP::CloudController
     metadata { {} }
   end
 
+  ProcessModel.blueprint(:cnb) do
+    instances { 1 }
+    type { 'web' }
+    diego { true }
+    app { AppModel.make(:cnb) }
+    metadata { {} }
+  end
+
   ProcessModel.blueprint(:diego_runnable) do
     app { AppModel.make(droplet: DropletModel.make) }
     diego { true }
@@ -566,7 +615,7 @@ module VCAP::CloudController
   end
 
   ServicePlanVisibility.blueprint do
-    service_plan { ServicePlan.make }
+    service_plan { ServicePlan.make(public: false) }
     organization { Organization.make }
   end
 
@@ -616,6 +665,10 @@ module VCAP::CloudController
     stack { nil }
   end
 
+  CustomBuildpack.blueprint do
+    url { 'http://acme.com' }
+  end
+
   BuildpackLifecycleDataModel.blueprint do
     buildpacks { nil }
     stack { Stack.make.name }
@@ -625,9 +678,22 @@ module VCAP::CloudController
     buildpacks { ['http://example.com/repo.git'] }
     stack { Stack.make.name }
     app_guid { Sham.guid }
-    droplet_guid { Sham.guid }
+    droplet { DropletModel.make }
     admin_buildpack_name { 'admin-bp' }
-    build_guid { Sham.guid }
+    build { BuildModel.make }
+  end
+
+  CNBLifecycleDataModel.blueprint do
+    buildpacks { nil }
+    stack { Stack.make.name }
+  end
+
+  CNBLifecycleDataModel.blueprint(:all_fields) do
+    buildpacks { ['docker://gcr.io/paketo-buildpacks/nodejs'] }
+    stack { Stack.make.name }
+    app_guid { Sham.guid }
+    droplet { DropletModel.make }
+    build { BuildModel.make }
   end
 
   KpackLifecycleDataModel.blueprint do
@@ -744,25 +810,32 @@ module VCAP::CloudController
 
   RevisionModel.blueprint do
     app { AppModel.make }
-    droplet { DropletModel.make(app: object.app, process_types: { 'web' => 'default_revision_droplet_web_command' }) }
+    droplet { DropletModel.make(app: app, process_types: { 'web' => 'default_revision_droplet_web_command' }) }
     description { 'Initial revision' }
     process_command_guids do
-      break [] if object.droplet.process_types.blank?
+      break [] if droplet.process_types.blank?
 
-      object.droplet.process_types.map do |type, _|
+      droplet.process_types.map do |type, _|
         RevisionProcessCommandModel.make(revision: object.save, process_type: type, process_command: nil).guid
       end
     end
   end
 
+  RevisionModel.blueprint(:no_commands) do
+    app { AppModel.make }
+    droplet { DropletModel.make(app:) }
+    process_command_guids { [] }
+    description { 'blank' }
+  end
+
   RevisionModel.blueprint(:custom_web_command) do
     app { AppModel.make }
-    droplet { DropletModel.make(app: object.app) }
+    droplet { DropletModel.make(app:) }
     description { 'Initial revision' }
     process_command_guids do
-      break [] if object.droplet.process_types.blank?
+      break [] if droplet.process_types.blank?
 
-      object.droplet.process_types.map do |type, _|
+      droplet.process_types.map do |type, _|
         process_command = RevisionProcessCommandModel.make(revision: object.save, process_type: type, process_command: nil)
         process_command.update(process_command: 'custom_web_command') if type == 'web'
         process_command.guid
